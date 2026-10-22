@@ -1,0 +1,22 @@
+checks:
+  - name: material_unique
+    structure: basic
+    type: UNIQUE
+    fields: [MATERIAL]
+  - name: material_type_allowed
+    structure: basic
+    type: ALLOWED_VALUES
+    field: MATERIAL_TYPE
+    values: [FERT, HALB, ROH]
+  - name: weight_in_range
+    structure: basic
+    type: RANGE
+    field: GROSS_WEIGHT
+    min: 0
+    max: 1000
+  - name: weight_outlier
+    structure: basic
+    type: OUTLIER
+    field: GROSS_WEIGHT
+    max_zscore: 2.5
+    severity: warn

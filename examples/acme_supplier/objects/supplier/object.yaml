@@ -1,0 +1,17 @@
+name: supplier
+description: Business Partner - Supplier (general data)
+sources:
+  - kind: file
+    name: lfa1
+    path: data/lfa1.csv
+    format: csv
+structures:
+  - name: general
+    target_table: bp_general
+    source: lfa1
+    mapping: mappings/general.yaml
+loads:
+  - kind: file
+    structure: general
+    path: output/supplier_general.csv
+    format: csv

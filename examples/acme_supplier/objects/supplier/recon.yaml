@@ -1,0 +1,21 @@
+recons:
+  - name: supplier_row_count
+    structure: general
+    type: COUNT
+  - name: supplier_keys
+    structure: general
+    type: KEYS
+    source_key: [LIFNR]
+    target_key: [PARTNER]
+  - name: supplier_control_total
+    structure: general
+    type: TOTALS
+    source_field: LIFNR
+    target_field: PARTNER
+    agg: count_distinct
+  - name: supplier_values
+    structure: general
+    type: FIELDS
+    source_key: [LIFNR]
+    target_key: [PARTNER]
+    fields: auto

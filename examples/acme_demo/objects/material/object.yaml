@@ -1,0 +1,17 @@
+name: material
+description: Material master - basic data
+sources:
+  - kind: file
+    name: mara
+    path: data/mara.csv
+    format: csv
+structures:
+  - name: basic
+    target_table: material_basic
+    source: mara
+    mapping: mappings/basic.yaml
+loads:
+  - kind: file
+    structure: basic
+    path: output/material_basic.csv
+    format: csv

@@ -1,0 +1,8 @@
+name: Acme Global - S/4 Transformation
+description: >
+  Fictitious demo programme with two migration objects (supplier and material).
+  Every name, number and value in this folder is invented.
+working_connection: working
+connections:
+  working:
+    url_env: DMC_WORKING_DB_URL

@@ -1,0 +1,25 @@
+fields:
+  - target_field: PARTNER
+    description: Business partner number
+    mandatory: true
+    length: 10
+    rule: { type: MOVE, source_field: LIFNR }
+  - target_field: BANK_COUNTRY
+    description: Bank country key
+    mandatory: true
+    length: 2
+    rule: { type: XREF, source_field: BANKS, xref: country }
+  - target_field: BANK_KEY
+    description: Bank key
+    mandatory: true
+    length: 15
+    rule: { type: MOVE, source_field: BANKL }
+  - target_field: ACCOUNT
+    description: Bank account number
+    mandatory: true
+    length: 18
+    rule: { type: MOVE, source_field: BANKN }
+  - target_field: HOLDER
+    description: Account holder
+    length: 60
+    rule: { type: MOVE, source_field: KOINH }

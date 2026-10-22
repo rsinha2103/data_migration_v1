@@ -1,0 +1,39 @@
+checks:
+  - name: partner_unique
+    structure: general
+    type: UNIQUE
+    fields: [PARTNER]
+    description: One business partner per legacy vendor number.
+  - name: partner_is_numeric
+    structure: general
+    type: PATTERN
+    field: PARTNER
+    pattern: '\d{10}'
+  - name: payment_terms_allowed
+    structure: general
+    type: ALLOWED_VALUES
+    field: PAYMENT_TERMS
+    values: ["0001", "0030", "0060"]
+  - name: city_filled
+    structure: general
+    type: NULL_RATE
+    field: CITY
+    max_pct: 5
+    severity: warn
+  - name: name_not_too_short
+    structure: general
+    type: SQL_ASSERT
+    severity: warn
+    sql: |
+      SELECT "_dmc_row_no" FROM {{ tgt.general }} WHERE LENGTH("NAME_ORG1") < 3
+  - name: bank_partner_exists
+    structure: bank
+    type: REFERENTIAL
+    field: PARTNER
+    ref_structure: general
+    ref_field: PARTNER
+    description: Every bank account belongs to a migrated supplier.
+  - name: bank_account_unique
+    structure: bank
+    type: UNIQUE
+    fields: [PARTNER, BANK_KEY, ACCOUNT]

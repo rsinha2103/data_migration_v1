@@ -1,0 +1,27 @@
+fields:
+  - target_field: PARTNER
+    description: Business partner number
+    mandatory: true
+    length: 10
+    rule: { type: MOVE, source_field: LIFNR }
+  - target_field: BU_GROUP
+    description: Business partner grouping
+    mandatory: true
+    rule: { type: CONSTANT, value: "SUPL" }
+  - target_field: NAME_ORG1
+    description: Name
+    mandatory: true
+    length: 40
+    rule: { type: MOVE, source_field: NAME1 }
+  - target_field: COUNTRY
+    description: Country key
+    mandatory: true
+    length: 2
+    rule: { type: XREF, source_field: LAND1, xref: country, on_unmapped: error }
+  - target_field: SEARCH_TERM
+    description: Search term, first 10 characters of the name
+    length: 10
+    rule: { type: SUBSTRING, source_field: NAME1, start: 1, length: 10 }
+  - target_field: LEGACY_REF
+    description: Legacy source reference
+    rule: { type: CONCAT, source_fields: [LIFNR, NAME1], separator: "-" }

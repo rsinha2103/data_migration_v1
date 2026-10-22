@@ -1,0 +1,21 @@
+recons:
+  - name: material_row_count
+    structure: basic
+    type: COUNT
+  - name: material_keys
+    structure: basic
+    type: KEYS
+    source_key: [MATNR]
+    target_key: [MATERIAL]
+  - name: weight_total
+    structure: basic
+    type: TOTALS
+    source_field: BRGEW
+    target_field: GROSS_WEIGHT
+    agg: sum
+  - name: material_values
+    structure: basic
+    type: FIELDS
+    source_key: [MATNR]
+    target_key: [MATERIAL]
+    fields: auto

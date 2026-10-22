@@ -1,0 +1,28 @@
+fields:
+  - target_field: MATERIAL
+    description: Material number
+    mandatory: true
+    length: 18
+    rule: { type: MOVE, source_field: MATNR }
+  - target_field: DESCRIPTION
+    description: Material description
+    mandatory: true
+    length: 40
+    rule: { type: MOVE, source_field: MAKTX }
+  - target_field: MATERIAL_TYPE
+    description: Material type
+    mandatory: true
+    length: 4
+    rule: { type: MOVE, source_field: MTART }
+  - target_field: BASE_UOM
+    description: Base unit of measure
+    mandatory: true
+    length: 3
+    rule: { type: XREF, source_field: MEINS, xref: uom }
+  - target_field: GROSS_WEIGHT
+    description: Gross weight in kg
+    data_type: decimal
+    rule: { type: MOVE, source_field: BRGEW }
+  - target_field: WEIGHT_UNIT
+    description: Weight unit
+    rule: { type: CONSTANT, value: "KG" }

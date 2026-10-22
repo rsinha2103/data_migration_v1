@@ -1,0 +1,30 @@
+name: supplier
+description: Business Partner - Supplier (general data and bank details)
+sources:
+  - kind: file
+    name: lfa1
+    path: data/lfa1.csv
+    format: csv
+  - kind: file
+    name: lfbk
+    path: data/lfbk.xlsx
+    format: xlsx
+    sheet: LFBK
+structures:
+  - name: general
+    target_table: bp_general
+    source: lfa1
+    mapping: mappings/general.yaml
+  - name: bank
+    target_table: bp_bank
+    source: lfbk
+    mapping: mappings/bank.yaml
+loads:
+  - kind: file
+    structure: general
+    path: output/supplier_general.csv
+    format: csv
+  - kind: file
+    structure: bank
+    path: output/supplier_bank.xlsx
+    format: xlsx

@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.12", "3.14"]
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dmc
+          POSTGRES_PASSWORD: dmc
+          POSTGRES_DB: dmc
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U dmc" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      DMC_WORKING_DB_URL: postgresql+psycopg://dmc:dmc@localhost:5432/dmc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install ${{ matrix.python }}
+      - run: uv sync --python ${{ matrix.python }}
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest

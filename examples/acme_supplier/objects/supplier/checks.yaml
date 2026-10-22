@@ -1,0 +1,28 @@
+checks:
+  - name: partner_unique
+    structure: general
+    type: UNIQUE
+    fields: [PARTNER]
+    description: One business partner per legacy vendor number.
+  - name: country_allowed
+    structure: general
+    type: ALLOWED_VALUES
+    field: COUNTRY
+    values: [DE, GB, US]
+  - name: partner_is_numeric
+    structure: general
+    type: PATTERN
+    field: PARTNER
+    pattern: '\d{10}'
+  - name: search_term_filled
+    structure: general
+    type: NULL_RATE
+    field: SEARCH_TERM
+    max_pct: 5
+    severity: warn
+  - name: name_not_too_short
+    structure: general
+    type: SQL_ASSERT
+    severity: warn
+    sql: |
+      SELECT "_dmc_row_no" FROM {{ tgt.general }} WHERE LENGTH("NAME_ORG1") < 3

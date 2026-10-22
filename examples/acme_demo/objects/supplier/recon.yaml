@@ -1,0 +1,24 @@
+recons:
+  - name: general_row_count
+    structure: general
+    type: COUNT
+  - name: general_keys
+    structure: general
+    type: KEYS
+    source_key: [LIFNR]
+    target_key: [PARTNER]
+  - name: general_values
+    structure: general
+    type: FIELDS
+    source_key: [LIFNR]
+    target_key: [PARTNER]
+    fields: auto
+  - name: bank_row_count
+    structure: bank
+    type: COUNT
+  - name: bank_values
+    structure: bank
+    type: FIELDS
+    source_key: [LIFNR, BANKL]
+    target_key: [PARTNER, BANK_KEY]
+    fields: auto

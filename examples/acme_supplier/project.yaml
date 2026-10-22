@@ -1,0 +1,6 @@
+name: Acme Global - S/4 Transformation
+description: Fictitious demo programme. All data is invented.
+working_connection: working
+connections:
+  working:
+    url_env: DMC_WORKING_DB_URL
