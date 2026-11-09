@@ -78,6 +78,7 @@ class CheckContext:
     obj: LoadedObject
     target_tables: dict[str, str]  # structure name -> target table in the working DB
     source_tables: dict[str, str] = dc_field(default_factory=dict)  # structure -> staging table
+    extra_sources: dict[str, list[str]] = dc_field(default_factory=dict)  # UNION ALL row sets
 
     def table(self, structure: str, obj: LoadedObject | None = None) -> str:
         if obj is None or obj is self.obj:

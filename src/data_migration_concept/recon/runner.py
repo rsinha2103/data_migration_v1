@@ -34,10 +34,17 @@ def run_recons(
     sources = {
         n: staging_table_name(project.config, object_name, s.source) for n, s in structures.items()
     }
+    extras = {
+        n: [staging_table_name(project.config, object_name, u.source) for u in s.unions]
+        for n, s in structures.items()
+        if s.unions
+    }
     existing = set(inspect(engine).get_table_names())
     needed: dict[str, str] = {}
     for rec in obj.recons:
         needed[sources[rec.structure]] = "extract"
+        for table in extras.get(rec.structure, []):
+            needed[table] = "extract"
         needed[rec.target_table or targets[rec.structure]] = (
             "load or import" if rec.target_table else "transform"
         )
@@ -49,6 +56,11 @@ def run_recons(
         )
 
     ctx = CheckContext(
-        engine=engine, project=project, obj=obj, target_tables=targets, source_tables=sources
+        engine=engine,
+        project=project,
+        obj=obj,
+        target_tables=targets,
+        source_tables=sources,
+        extra_sources=extras,
     )
     return execute_and_record(build_recons(obj.recons), ctx, runlog, run_id, "recon")

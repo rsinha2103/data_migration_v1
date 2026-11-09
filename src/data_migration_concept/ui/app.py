@@ -18,8 +18,10 @@ from data_migration_concept.config import ConfigError
 from data_migration_concept.config.models import SqlSource
 from data_migration_concept.proposals import KIND_LABELS, KINDS, propose
 from data_migration_concept.report import ReportError, collect_report
+from data_migration_concept.transform.errors import TransformError
 from data_migration_concept.transform.generator import q
-from data_migration_concept.ui import editor, pipeline, proposals_service, targets
+from data_migration_concept.transform.preview import preview_structure
+from data_migration_concept.ui import editor, mapping_sheet, pipeline, proposals_service, targets
 from data_migration_concept.ui.editor import EditError
 from data_migration_concept.ui.workspace import Ctx, Workspace, WorkspaceError, open_project
 
@@ -452,6 +454,84 @@ def create_app(workspace: Path) -> FastAPI:
             return fail(url, "Source not changed.", exc.errors)
         return ok(url, "This structure now reads from that source. Re-run Extract and Transform.")
 
+    @app.post("/p/{p}/o/{o}/structures/{s}/joins")
+    async def join_add(request: Request, p: str, o: str, s: str) -> RedirectResponse:
+        form = await request.form()
+        url = f"/p/{p}/o/{o}/structures/{s}"
+        pairs = [(str(form.get(f"main{i}", "")), str(form.get(f"other{i}", ""))) for i in range(3)]
+        try:
+            editor.add_join(
+                project_dir(p),
+                o,
+                s,
+                str(form.get("source", "")),
+                pairs,
+                str(form.get("type", "left")),
+                str(form.get("on_duplicates", "error")),
+            )
+        except EditError as exc:
+            return fail(url, "Join not added.", exc.errors)
+        return ok(url, "Source joined. Its columns can now be used as source.COLUMN.")
+
+    @app.post("/p/{p}/o/{o}/structures/{s}/joins/remove")
+    def join_remove(p: str, o: str, s: str, source: str = Form(...)) -> RedirectResponse:
+        url = f"/p/{p}/o/{o}/structures/{s}"
+        try:
+            editor.remove_join(project_dir(p), o, s, source)
+        except EditError as exc:
+            return fail(url, "Join not removed.", exc.errors)
+        return ok(url, "Join removed; fields that used it are now not mapped.")
+
+    @app.post("/p/{p}/o/{o}/structures/{s}/rowsets")
+    async def rowset_add(request: Request, p: str, o: str, s: str) -> RedirectResponse:
+        form = await request.form()
+        url = f"/p/{p}/o/{o}/structures/{s}"
+        pairs = [(str(form.get(f"main{i}", "")), str(form.get(f"other{i}", ""))) for i in range(3)]
+        try:
+            editor.add_row_set(
+                project_dir(p),
+                o,
+                s,
+                str(form.get("name", "")),
+                str(form.get("source", "")),
+                str(form.get("join_source", "")),
+                pairs,
+                str(form.get("type", "left")),
+                str(form.get("on_duplicates", "error")),
+            )
+        except EditError as exc:
+            return fail(url, "Row set not added.", exc.errors)
+        return ok(url, "Row set added: its rows are put below the main rows (UNION ALL). "
+                       "Give the fields that differ their own rule, then re-run Extract/Transform.")  # fmt: skip
+
+    @app.post("/p/{p}/o/{o}/structures/{s}/rowsets/remove")
+    def rowset_remove(p: str, o: str, s: str, name: str = Form(...)) -> RedirectResponse:
+        url = f"/p/{p}/o/{o}/structures/{s}"
+        try:
+            editor.remove_row_set(project_dir(p), o, s, name)
+        except EditError as exc:
+            return fail(url, "Row set not removed.", exc.errors)
+        return ok(url, "Row set removed.")
+
+    @app.post("/p/{p}/o/{o}/structures/{s}/rowsets/override")
+    def rowset_override(
+        p: str, o: str, s: str, row_set: str = Form(...), field: str = Form(...),
+        rule: str = Form("MOVE"), src: str = Form(""), a1: str = Form(""),
+        a2: str = Form(""), a3: str = Form(""), remove: str = Form(""),
+    ) -> RedirectResponse:  # fmt: skip
+        url = f"/p/{p}/o/{o}/structures/{s}"
+        try:
+            new_rule = None if remove else editor.rule_from_form(rule, src, a1, a2, a3)
+            editor.set_override(project_dir(p), o, s, row_set, field, new_rule)
+        except (EditError, ValueError) as exc:
+            lines = exc.errors if isinstance(exc, EditError) else [str(exc)]
+            return fail(url, "Rule not changed.", lines)
+        return ok(
+            url,
+            f"{field} in '{row_set}' "
+            + ("uses the main rule again." if remove else "has its own rule."),
+        )
+
     @app.post("/p/{p}/o/{o}/structures/remove")
     def structure_remove(p: str, o: str, name: str = Form(...)) -> RedirectResponse:
         try:
@@ -483,12 +563,50 @@ def create_app(workspace: Path) -> FastAPI:
             summary = editor.mapping_summary(
                 {
                     "fields": [
-                        {"mandatory": r["mandatory"], "rule": {"type": r["rule"]}} for r in rows
+                        {
+                            "mandatory": r["mandatory"],
+                            "review": r["review"],
+                            "rule": {"type": r["rule"]},
+                        }
+                        for r in rows
                     ]
                 }
             )
+            join_columns: dict[str, list[str]] = {}
+            for j in st.joins:
+                try:
+                    join_columns[j.source] = source_columns(ctx, o, j.source)
+                except EditError:
+                    join_columns[j.source] = []
+            all_columns = columns + [f"{a}.{c}" for a, cs in join_columns.items() for c in cs]
+            joinable = [
+                x.name
+                for x in ctx.project.objects[o].config.sources
+                if x.name != st.source and x.name not in join_columns
+            ]
+            union_info = []
+            for u in st.unions:
+                cols: list[str] = []
+                try:
+                    cols = source_columns(ctx, o, u.source)
+                    for j in u.joins:
+                        cols += [f"{j.source}.{c}" for c in source_columns(ctx, o, j.source)]
+                except EditError:
+                    pass
+                union_info.append({
+                    "name": u.name, "source": u.source, "joins": u.joins, "columns": cols,
+                    "overrides": editor.mapping_rows({
+                        "fields": [
+                            {"target_field": t, "rule": r.model_dump(exclude_none=True)}
+                            for t, r in u.overrides.items()
+                        ]
+                    }),
+                })  # fmt: skip
             return page(request, "mapping.html", project=p, obj=o, structure=st, rows=rows,
-                        columns=columns, xrefs=editor.list_xrefs(project_dir(p), o),
+                        columns=columns, all_columns=all_columns, join_columns=join_columns,
+                        joinable=joinable, unions=union_info,
+                        all_sources=ctx.project.objects[o].config.sources,
+                        target_names=[r["target"] for r in rows], xrefs=editor.list_xrefs(project_dir(p), o),
                         rule_types=editor.RULE_TYPES, data_types=editor.DATA_TYPES,
                         summary=summary, sources=ctx.project.objects[o].config.sources,
                         tab="structures")  # fmt: skip
@@ -520,6 +638,98 @@ def create_app(workspace: Path) -> FastAPI:
             return ok(url, f"{mapped_by_name} field(s) mapped by matching names. Check them, then "
                            "re-run Transform.")  # fmt: skip
         return ok(url, "Mapping saved. Re-run Transform to apply it.")
+
+    # --- preview of the result before running -------------------------------------------
+
+    @app.get("/p/{p}/o/{o}/structures/{s}/preview", response_class=HTMLResponse)
+    def mapping_preview(request: Request, p: str, o: str, s: str, rows: int = 10) -> HTMLResponse:
+        result = None
+        problem = ""
+        with open_project(project_dir(p)) as ctx:
+            need_object(ctx, o)
+            st = mapping_context(ctx, o, s)["structure"]
+            try:
+                result = preview_structure(
+                    ctx.project, ctx.project.objects[o], st, ctx.engine, rows
+                )
+            except TransformError as exc:
+                problem = str(exc)
+        return page(request, "mapping_preview.html", project=p, obj=o, structure=s, result=result,
+                    problem=problem, rows=rows, tab="structures")  # fmt: skip
+
+    # --- mapping specification for business review (Excel) -----------------------------
+
+    def current_mapping(ctx: Ctx, o: str, s: str) -> dict[str, Any]:
+        need_object(ctx, o)
+        st = mapping_context(ctx, o, s)["structure"]
+        if not st.mapping:
+            raise WorkspaceError(
+                f"Structure '{s}' is built by custom SQL and has no mapping table."
+            )
+        return editor.read_yaml(ctx.project.objects[o].root / st.mapping) or {}  # type: ignore[no-any-return]
+
+    @app.get("/p/{p}/o/{o}/structures/{s}/spec.xlsx")
+    def spec_download(p: str, o: str, s: str) -> Response:
+        with open_project(project_dir(p)) as ctx:
+            mapping = current_mapping(ctx, o, s)
+        used = {
+            f["rule"].get("xref")
+            for f in mapping.get("fields", [])
+            if f.get("rule", {}).get("type") == "XREF"
+        }
+        lists = {
+            n: editor.read_xref(project_dir(p), o, n) for n in editor.list_xrefs(project_dir(p), o)
+            if n in used
+        }  # fmt: skip
+        body = mapping_sheet.export_xlsx(editor.mapping_rows(mapping), f"{o} / {s}", lists)
+        return Response(
+            body,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="mapping-{o}-{s}.xlsx"'},
+        )
+
+    @app.post("/p/{p}/o/{o}/structures/{s}/spec")
+    def spec_upload(p: str, o: str, s: str, file: UploadFile = File(...)) -> RedirectResponse:
+        url = f"/p/{p}/o/{o}/structures/{s}"
+        content = file.file.read(editor.MAX_UPLOAD + 1)
+        try:
+            with open_project(project_dir(p)) as ctx:
+                mapping = current_mapping(ctx, o, s)
+            mapping_sheet.diff_sheet(file.filename or "spec.xlsx", content, mapping)  # fail early
+        except EditError as exc:
+            return fail(url, "Could not read the mapping file.", exc.errors)
+        token = pending.put(targets.Pending(p, o, file.filename or "spec.xlsx", content, "spec", s))
+        return RedirectResponse(f"{url}/spec/{token}", status_code=303)
+
+    @app.get("/p/{p}/o/{o}/structures/{s}/spec/{token}", response_class=HTMLResponse)
+    def spec_preview(request: Request, p: str, o: str, s: str, token: str) -> HTMLResponse:
+        url = f"/p/{p}/o/{o}/structures/{s}"
+        try:
+            item = pending.get(token, p, o)
+            with open_project(project_dir(p)) as ctx:
+                mapping = current_mapping(ctx, o, s)
+            diff = mapping_sheet.diff_sheet(item.filename, item.content, mapping)
+        except EditError as exc:
+            return fail(url, "Could not read the mapping file.", exc.errors)  # type: ignore[return-value]
+        return page(request, "mapping_import.html", project=p, obj=o, structure=s, token=token,
+                    diff=diff, filename=item.filename, tab="structures")  # fmt: skip
+
+    @app.post("/p/{p}/o/{o}/structures/{s}/spec/{token}")
+    def spec_apply(p: str, o: str, s: str, token: str) -> RedirectResponse:
+        url = f"/p/{p}/o/{o}/structures/{s}"
+        try:
+            item = pending.get(token, p, o)
+            with open_project(project_dir(p)) as ctx:
+                mapping = current_mapping(ctx, o, s)
+            diff = mapping_sheet.diff_sheet(item.filename, item.content, mapping)
+            if not diff.changes:
+                pending.drop(token)
+                return ok(url, "Nothing to import - the file matches the mapping.")
+            editor.save_mapping(project_dir(p), o, s, diff.mapping)
+        except EditError as exc:
+            return fail(url, "Import not applied.", exc.errors)
+        pending.drop(token)
+        return ok(url, f"{len(diff.changes)} change(s) imported. Re-run Transform to apply them.")
 
     # --- XREF ------------------------------------------------------------------------
 
@@ -561,6 +771,8 @@ def create_app(workspace: Path) -> FastAPI:
             for f in mapping.fields:
                 if getattr(f.rule, "xref", None) == name:
                     col = f.rule.source_field  # type: ignore[union-attr]
+                    if "." in col:  # a joined source's column lives in another staging table
+                        continue
                     sql = (f"SELECT DISTINCT CAST({q(col)} AS TEXT) FROM {q(table)} "
                            f"WHERE {q(col)} IS NOT NULL ORDER BY 1 LIMIT 2000")  # fmt: skip
                     with ctx.engine.connect() as conn:

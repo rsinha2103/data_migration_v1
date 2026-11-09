@@ -126,6 +126,11 @@ class CountRecon(ReconCheck):
             expected = conn.execute(
                 text(f"SELECT COUNT(*) FROM {self._source_from(ctx)}")
             ).scalar_one()
+            # row sets added with UNION ALL contribute all their rows
+            for table in ctx.extra_sources.get(self.structure, []):
+                more = conn.execute(text(f"SELECT COUNT(*) FROM {q(table)}")).scalar_one()
+                total += more
+                expected += more
         actual = ctx.row_count(self.target_table(ctx))
         if abs(actual - expected) > conf.tolerance:
             excluded = total - expected
@@ -245,11 +250,14 @@ class FieldsRecon(ReconCheck):
         mapping = ctx.obj.mappings.get(self.structure)
         if mapping is None:
             raise CheckConfigError("'fields: auto' needs a mapped structure; list the fields")
+        structure = next((s for s in ctx.obj.config.structures if s.name == self.structure), None)
+        joined = {j.source for j in structure.joins} if structure else set()
         pairs = [
             (f.rule.source_field, f.target_field)
             for f in mapping.fields
             if isinstance(f.rule, cfg.MoveRule)
-        ]
+            and cfg.split_ref(f.rule.source_field, joined)[0] is None  # joined columns are not in
+        ]  # the staged main source, so they cannot be compared against it
         if not pairs:
             raise CheckConfigError("'fields: auto' found no MOVE rules to compare")
         return pairs

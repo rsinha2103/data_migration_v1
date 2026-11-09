@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import Engine, inspect, text
+from sqlalchemy.engine.reflection import Inspector
 
 from data_migration_concept.config.loader import LoadedObject, LoadedProject
 from data_migration_concept.config.models import XrefRule
@@ -93,16 +94,18 @@ def transform_object(
     results: list[TransformResult] = []
     for g in generated:
         with runlog.step(run_id, f"transform:{g.structure}") as rec:
-            if not inspector.has_table(g.source_table):
-                raise TransformError(
-                    f"structure '{g.structure}': staging table '{g.source_table}' not found; "
-                    "run extract first"
-                )
+            for table in g.source_tables:
+                if not inspector.has_table(table):
+                    raise TransformError(
+                        f"structure '{g.structure}': staging table '{table}' not found; "
+                        "run extract first"
+                    )
+            _check_joins(engine, g, inspector)
             _fail_on_unmapped(engine, g)
             with engine.begin() as conn:
                 for stmt in g.statements:
                     conn.execute(text(to_dialect(stmt, dialect)))
-            rec.rows_in = _count(engine, g.source_table)
+            rec.rows_in = sum(_count(engine, t) for t in g.source_tables)
             rec.rows_out = _count(engine, g.target_table)
             rec.message = f"built {g.target_table}"
         results.append(
@@ -111,6 +114,38 @@ def transform_object(
             )
         )
     return results
+
+
+def _check_joins(engine: Engine, g: GeneratedStructure, inspector: Inspector) -> None:
+    """Joined sources must be staged, and (unless the join takes the first row) must not hold a
+    join key more than once, which would multiply rows."""
+    for j in g.joins:
+        if not inspector.has_table(j.table):
+            raise TransformError(
+                f"structure '{g.structure}': staging table '{j.table}' of the joined source "
+                f"'{j.source}' not found; run extract first"
+            )
+        if j.on_duplicates != "error":
+            continue
+        keys = [other for _, other in j.keys]
+        cols = ", ".join(q(k) for k in keys)
+        present = " AND ".join(f"{q(k)} IS NOT NULL" for k in keys)
+        sql = (
+            f"SELECT {cols}, COUNT(*) FROM {q(j.table)} WHERE {present} "
+            f"GROUP BY {cols} HAVING COUNT(*) > 1 ORDER BY 2 DESC LIMIT 10"
+        )
+        with engine.connect() as conn:
+            rows = conn.execute(text(sql)).all()
+        if rows:
+            shown = "; ".join(
+                f"{' / '.join(str(v) for v in row[:-1])} appears {row[-1]} times"
+                for row in rows[:5]
+            )
+            raise TransformError(
+                f"structure '{g.structure}': the join with '{j.source}' would multiply rows "
+                f"because its key ({', '.join(keys)}) is not unique: {shown}. Fix the data, or "
+                "set the join to use the first row only."
+            )
 
 
 def _fail_on_unmapped(engine: Engine, g: GeneratedStructure) -> None:

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="crumbs"><a href="/p/{{ project }}/o/{{ obj }}/structures/{{ structure }}">&laquo; back to the mapping of {{ structure }}</a></div>
+<h2 style="margin-top:0">Preview: {{ structure }}</h2>
+<div class="explain">What the Transform step would produce from the first source rows, with the source values under each result. Nothing is written to the target; use it to check a mapping before running it. Red cells break a rule of the target structure (a mandatory field without a value, or a value longer than allowed).</div>
+
+{% if problem %}
+<div class="flash error"><b>No preview yet.</b><pre>{{ problem }}</pre></div>
+{% elif result %}
+<form method="get" class="row" style="margin-bottom:8px">
+ <div><label>Rows</label><select name="rows" onchange="this.form.submit()">{% for n in [5, 10, 25, 50] %}<option {{ 'selected' if n == rows }}>{{ n }}</option>{% endfor %}</select></div>
+ <span class="hint">{{ result.total_rows }} source row(s) in total</span>
+</form>
+
+{% if result.xrefs %}
+<div class="card" style="margin-bottom:10px"><b>Value lists (XREF)</b>
+{% for x in result.xrefs %}
+ <div style="margin-top:4px">{{ x.field }} &larr; list <code>{{ x.xref }}</code>:
+ {% if x.missing %}<span class="badge WARN">{{ x.missing|length }}{{ '+' if x.missing|length >= 10 }} value(s) without an entry</span> {{ x.policy }}.
+  <span class="hint">{% for v, n in x.missing %}{{ v }} ({{ n }}x){{ ', ' if not loop.last }}{% endfor %}</span>
+ {% else %}<span class="badge OK">every value has an entry</span>{% endif %}</div>
+{% endfor %}
+</div>
+{% endif %}
+
+<div class="scroll"><table class="mapgrid">
+<thead><tr>{% if result.row_sets and result.row_sets[0] %}<th>Row set</th>{% endif %}{% for c in result.columns %}<th>{{ c.name }}{% if c.mandatory %} *{% endif %}<div class="hint">{{ '(not mapped)' if c.rule == 'UNMAPPED' else c.rule }}{% if c.length %} &middot; max {{ c.length }}{% endif %}</div></th>{% endfor %}</tr></thead>
+<tbody>{% for row in result.rows %}<tr>
+{% if result.row_sets[0] %}<td><span class="badge NOTRUN">{{ result.row_sets[loop.index0] }}</span></td>{% endif %}
+{% for cell in row %}<td {% if cell.flag %}style="background:#fde8e8"{% endif %}>
+ {% if cell.value is none %}<span class="muted">(empty)</span>{% else %}<b>{{ cell.value }}</b>{% endif %}
+ {% if cell.flag == 'empty' %}<div class="hint">mandatory, no value</div>{% elif cell.flag == 'long' %}<div class="hint">too long</div>{% endif %}
+ {% if cell.sources %}<div class="hint">from: {% for s in cell.sources %}{{ '(empty)' if s is none else s }}{{ ' | ' if not loop.last }}{% endfor %}</div>{% endif %}
+</td>{% endfor %}
+</tr>{% endfor %}</tbody></table></div>
+{% for n in result.notes %}<p class="hint">{{ n }}</p>{% endfor %}
+{% endif %}
+{% endblock %}

@@ -114,6 +114,18 @@ def _load_object(
     for st in cfg.structures:
         if st.source not in source_names:
             errors.append(f"{where}: structure '{st.name}': unknown source '{st.source}'")
+        for join in st.joins:
+            if join.source not in source_names:
+                errors.append(
+                    f"{where}: structure '{st.name}': joined source '{join.source}' does not exist"
+                )
+        for rs in st.unions:
+            label = f"{where}: structure '{st.name}', row set '{rs.name}'"
+            if rs.source not in source_names:
+                errors.append(f"{label}: unknown source '{rs.source}'")
+            for join in rs.joins:
+                if join.source not in source_names:
+                    errors.append(f"{label}: joined source '{join.source}' does not exist")
         if st.custom_sql is not None and not (object_dir / st.custom_sql).is_file():
             errors.append(f"{where}: structure '{st.name}': SQL file '{st.custom_sql}' not found")
         if st.mapping is None:
@@ -133,6 +145,27 @@ def _load_object(
                     errors.append(
                         f"{_rel(map_file, base)}: field '{fld.target_field}': "
                         f"xref file 'xref/{fld.rule.xref}.csv' not found"
+                    )
+        by_name = {f.target_field: f for f in mapping.fields}
+        for rs in st.unions:
+            label = f"{where}: structure '{st.name}', row set '{rs.name}'"
+            for target, rule in rs.overrides.items():
+                base_field = by_name.get(target)
+                if base_field is None:
+                    errors.append(f"{label}: override of unknown target field '{target}'")
+                elif isinstance(rule, NotMigratedRule) != isinstance(
+                    base_field.rule, NotMigratedRule
+                ):
+                    errors.append(
+                        f"{label}: field '{target}' must be NOT_MIGRATED in every row set "
+                        "or in none"
+                    )
+                if (
+                    isinstance(rule, XrefRule)
+                    and not (object_dir / "xref" / f"{rule.xref}.csv").is_file()
+                ):
+                    errors.append(
+                        f"{label}: field '{target}': xref file 'xref/{rule.xref}.csv' not found"
                     )
 
     structure_names = {s.name for s in cfg.structures}

@@ -7,12 +7,13 @@ from collections.abc import Callable
 from sqlalchemy import Engine
 
 from data_migration_concept.config.loader import LoadedObject, LoadedProject
-from data_migration_concept.config.models import FileSource, rule_source_fields
+from data_migration_concept.config.models import FileSource, rule_source_fields, split_ref
 from data_migration_concept.connectors import get_engine
 from data_migration_concept.extract.errors import ExtractError
 from data_migration_concept.extract.readers import read_file, read_sql
 from data_migration_concept.extract.staging import StageResult, staging_table_name, write_staging
 from data_migration_concept.runlog import RunLog
+from data_migration_concept.transform.generator import effective_rule
 
 
 def _column_validator(obj: LoadedObject, source_name: str) -> Callable[[list[str]], None]:
@@ -23,15 +24,41 @@ def _column_validator(obj: LoadedObject, source_name: str) -> Callable[[list[str
         problems: list[str] = []
         for st in obj.config.structures:
             mapping = obj.mappings.get(st.name)
-            if st.source != source_name or mapping is None:
+            if mapping is None:
                 continue
-            for fld in mapping.fields:
-                missing = [c for c in rule_source_fields(fld.rule) if c not in available]
-                if missing:
-                    problems.append(
-                        f"structure '{st.name}', field '{fld.target_field}': "
-                        f"missing source column(s) {', '.join(missing)}"
-                    )
+            for rs in st.row_sets():
+                joined = {j.source for j in rs.joins}
+                where = f"structure '{st.name}'" + (
+                    "" if rs is st.row_sets()[0] else f", row set '{rs.name}'"
+                )
+
+                def owned_missing(
+                    refs: list[str], rs_source: str = rs.source, names: set[str] = joined
+                ) -> list[str]:
+                    """Columns of refs that belong to this source and are not in it."""
+                    gone = []
+                    for ref in refs:
+                        alias, column = split_ref(ref, names)
+                        if (alias or rs_source) == source_name and column not in available:
+                            gone.append(ref)
+                    return gone
+
+                for fld in mapping.fields:
+                    missing = owned_missing(rule_source_fields(effective_rule(rs, fld)))
+                    if missing:
+                        problems.append(
+                            f"{where}, field '{fld.target_field}': "
+                            f"missing source column(s) {', '.join(missing)}"
+                        )
+                for join in rs.joins:
+                    keys = owned_missing([k.main for k in join.keys])
+                    if join.source == source_name:
+                        keys += [k.other for k in join.keys if k.other not in available]
+                    if keys:
+                        problems.append(
+                            f"{where}, join with '{join.source}': "
+                            f"missing key column(s) {', '.join(keys)}"
+                        )
         if problems:
             raise ExtractError(
                 f"source '{source_name}' does not match the mapping:\n  - "

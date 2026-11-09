@@ -138,6 +138,10 @@ class FieldMapping(_Base):
     mandatory: bool = False
     key: bool = Field(default=False, description="Part of the structure's key (must be unique).")
     rule: Rule
+    note: str = Field(default="", description="A comment for the business reviewer.")
+    review: Literal["", "approved", "changes"] = Field(
+        default="", description="Review state: empty = open."
+    )
 
 
 class MappingFile(_Base):
@@ -411,12 +415,87 @@ class SqlSource(_Base):
 Source = Annotated[FileSource | SqlSource, Field(discriminator="kind")]
 
 
+class JoinKey(_Base):
+    """One pair of columns that must be equal: `main` from the structure's own source (or an
+    earlier joined source, written `source.column`), `other` from the joined source."""
+
+    main: str
+    other: str
+
+
+class JoinConfig(_Base):
+    """Bring the columns of another source into a structure. Mapping rules then read them as
+    `<source>.<column>`; in SQL rules the joined source is available under its own name."""
+
+    source: Identifier
+    type: Literal["left", "inner"] = "left"
+    keys: Annotated[list[JoinKey], Field(min_length=1)]
+    on_duplicates: Literal["error", "first"] = Field(
+        default="error",
+        description="What to do when a key occurs more than once in the joined source: stop "
+        "the transform (error) or use the first row only (first).",
+    )
+
+    @field_validator("source")
+    @classmethod
+    def _not_reserved(cls, value: str) -> str:
+        if value == "s" or re.fullmatch(r"x\d+", value):
+            raise ValueError(f"'{value}' is reserved for generated SQL; rename that source")
+        return value
+
+
+def split_ref(ref: str, joined: set[str]) -> tuple[str | None, str]:
+    """('adrc', 'STRAS') for 'adrc.STRAS' when adrc is a joined source, else (None, ref)."""
+    head, dot, rest = ref.partition(".")
+    if dot and head in joined:
+        return head, rest
+    return None, ref
+
+
+def _check_joins(source: str, joins: list[JoinConfig], where: str) -> None:
+    names = [j.source for j in joins]
+    if source in names:
+        raise ValueError(f"{where}'{source}' is its own source and cannot be joined")
+    if len(set(names)) != len(names):
+        raise ValueError(f"{where}a source can be joined only once")
+
+
+MAIN_ROW_SET = "main"
+
+
+class RowSet(_Base):
+    """An extra set of rows for a structure (UNION ALL). It has its own main source and joins,
+    reads every field with the structure's mapping, and replaces the rules of the fields listed
+    under `overrides`."""
+
+    name: Identifier
+    source: str
+    joins: list[JoinConfig] = Field(default_factory=list)
+    overrides: dict[str, Rule] = Field(
+        default_factory=dict, description="Target field -> rule used instead of the mapping's."
+    )
+
+    @model_validator(mode="after")
+    def _joins_ok(self) -> RowSet:
+        _check_joins(self.source, self.joins, f"row set '{self.name}': ")
+        if self.name == MAIN_ROW_SET:
+            raise ValueError(f"'{MAIN_ROW_SET}' is the name of the structure's own rows")
+        return self
+
+
 class StructureConfig(_Base):
     """A target structure, built either from a mapping file or from custom SQL."""
 
     name: Identifier
     target_table: Identifier
     source: str = Field(description="Name of the source feeding this structure.")
+    joins: list[JoinConfig] = Field(
+        default_factory=list, description="Other sources joined to `source`."
+    )
+    unions: list[RowSet] = Field(
+        default_factory=list,
+        description="More sets of rows added below the structure's own rows (UNION ALL).",
+    )
     mapping: str | None = Field(default=None, description="Mapping YAML, relative to object.")
     custom_sql: str | None = Field(default=None, description="SQL file, relative to object.")
 
@@ -424,7 +503,20 @@ class StructureConfig(_Base):
     def _mapping_xor_sql(self) -> StructureConfig:
         if (self.mapping is None) == (self.custom_sql is None):
             raise ValueError("exactly one of 'mapping' or 'custom_sql' is required")
+        if (self.joins or self.unions) and self.mapping is None:
+            raise ValueError("joins and unions need a mapping; custom SQL does its own")
+        _check_joins(self.source, self.joins, "")
+        names = [u.name for u in self.unions]
+        if len(set(names)) != len(names):
+            raise ValueError("row set names must be unique")
         return self
+
+    def row_sets(self) -> list[RowSet]:
+        """The structure's own rows first, then the unions."""
+        main = RowSet.model_construct(
+            name=MAIN_ROW_SET, source=self.source, joins=self.joins, overrides={}
+        )
+        return [main, *self.unions]
 
 
 class FileLoad(_Base):

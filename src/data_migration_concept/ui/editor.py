@@ -7,6 +7,7 @@ import csv
 import io
 import re
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -306,6 +307,136 @@ def set_structure_source(project_dir: Path, obj: str, name: str, source: str) ->
     apply_changes(project_dir, {path: dump_yaml(data).encode()})
 
 
+def _structure_entry(data: dict[str, Any], name: str) -> dict[str, Any]:
+    st = next((s for s in data["structures"] if s["name"] == name), None)
+    if st is None:
+        raise EditError(f"No structure called '{name}'.")
+    return st
+
+
+def add_join(
+    project_dir: Path,
+    obj: str,
+    structure: str,
+    source: str,
+    pairs: list[tuple[str, str]],
+    join_type: str = "left",
+    on_duplicates: str = "error",
+) -> None:
+    """Join another source of the object into a structure. `pairs` are (column of the main
+    source, column of the joined source)."""
+    pairs = [(a.strip(), b.strip()) for a, b in pairs if a.strip() and b.strip()]
+    if not pairs:
+        raise EditError("Give at least one pair of key columns.")
+    path, data = _object_file(project_dir, obj)
+    st = _structure_entry(data, structure)
+    st.setdefault("joins", []).append(
+        {
+            "source": source,
+            "type": join_type,
+            "keys": [{"main": a, "other": b} for a, b in pairs],
+            "on_duplicates": on_duplicates,
+        }
+    )
+    apply_changes(project_dir, {path: dump_yaml(data).encode()})
+
+
+def remove_join(project_dir: Path, obj: str, structure: str, source: str) -> None:
+    """Drop a join. Mapping rules that still use `source.COLUMN` are reported by validation."""
+    path, data = _object_file(project_dir, obj)
+    st = _structure_entry(data, structure)
+    joins = st.get("joins", [])
+    if not any(j["source"] == source for j in joins):
+        raise EditError(f"'{structure}' does not join '{source}'.")
+    st["joins"] = [j for j in joins if j["source"] != source]
+    if not st["joins"]:
+        del st["joins"]
+    mapping_path = path.parent / st["mapping"] if st.get("mapping") else None
+    changes: dict[Path, bytes | None] = {path: dump_yaml(data).encode()}
+    if mapping_path is not None and mapping_path.exists():
+        # fields that read from the removed source go back to "not mapped"
+        mapping = read_yaml(mapping_path) or {}
+        prefix = f"{source}."
+        for f in mapping.get("fields", []):
+            rule = f.get("rule", {})
+            refs = [rule.get("source_field", "")] + list(rule.get("source_fields", []))
+            if any(str(r).startswith(prefix) for r in refs):
+                f["rule"] = {"type": "UNMAPPED"}
+        changes[mapping_path] = dump_yaml(mapping).encode()
+    apply_changes(project_dir, changes)
+
+
+def add_row_set(
+    project_dir: Path,
+    obj: str,
+    structure: str,
+    name: str,
+    source: str,
+    join_source: str = "",
+    pairs: list[tuple[str, str]] | None = None,
+    join_type: str = "left",
+    on_duplicates: str = "error",
+) -> None:
+    """Add rows to a structure with UNION ALL: a row set with its own main source and,
+    optionally, one joined source (`pairs` = main column, joined column)."""
+    name = identifier(name.strip(), "rows")
+    path, data = _object_file(project_dir, obj)
+    st = _structure_entry(data, structure)
+    entry: dict[str, Any] = {"name": name, "source": source}
+    keys = [(a.strip(), b.strip()) for a, b in (pairs or []) if a.strip() and b.strip()]
+    if join_source:
+        if not keys:
+            raise EditError("Give at least one pair of key columns for the join.")
+        entry["joins"] = [
+            {
+                "source": join_source,
+                "type": join_type,
+                "keys": [{"main": a, "other": b} for a, b in keys],
+                "on_duplicates": on_duplicates,
+            }
+        ]
+    st.setdefault("unions", []).append(entry)
+    apply_changes(project_dir, {path: dump_yaml(data).encode()})
+
+
+def _union_entry(st: dict[str, Any], name: str) -> dict[str, Any]:
+    found = next((u for u in st.get("unions", []) if u["name"] == name), None)
+    if found is None:
+        raise EditError(f"The structure has no row set '{name}'.")
+    return found
+
+
+def remove_row_set(project_dir: Path, obj: str, structure: str, name: str) -> None:
+    path, data = _object_file(project_dir, obj)
+    st = _structure_entry(data, structure)
+    _union_entry(st, name)
+    st["unions"] = [u for u in st["unions"] if u["name"] != name]
+    if not st["unions"]:
+        del st["unions"]
+    apply_changes(project_dir, {path: dump_yaml(data).encode()})
+
+
+def set_override(
+    project_dir: Path,
+    obj: str,
+    structure: str,
+    row_set: str,
+    field: str,
+    rule: dict[str, Any] | None,
+) -> None:
+    """Give one field a different rule in a row set (`None` removes the override)."""
+    path, data = _object_file(project_dir, obj)
+    union = _union_entry(_structure_entry(data, structure), row_set)
+    overrides = union.setdefault("overrides", {})
+    if rule is None:
+        overrides.pop(field, None)
+    else:
+        overrides[field] = rule
+    if not overrides:
+        del union["overrides"]
+    apply_changes(project_dir, {path: dump_yaml(data).encode()})
+
+
 def remove_structure(project_dir: Path, obj: str, name: str) -> None:
     path, data = _object_file(project_dir, obj)
     removed = [s for s in data["structures"] if s["name"] == name]
@@ -383,6 +514,10 @@ def mapping_from_form(form: Any) -> dict[str, Any]:
             if get("key"):
                 field["key"] = True
             field["rule"] = rule_from_form(get("rule"), get("src"), get("a1"), get("a2"), get("a3"))
+            if get("note").strip():
+                field["note"] = get("note").strip()
+            if get("review") in ("approved", "changes"):
+                field["review"] = get("review")
             fields.append(field)
         except ValueError as exc:
             problems.append(f"Row {i + 1} ({get('target') or 'unnamed'}): {exc}")
@@ -453,6 +588,7 @@ def mapping_rows(mapping: dict[str, Any]) -> list[dict[str, Any]]:
                 "dtype": f.get("data_type", "string"), "length": f.get("length", ""),
                 "mandatory": bool(f.get("mandatory")), "key": bool(f.get("key")), "rule": t,
                 "src": src, "a1": a1, "a2": a2, "a3": a3,
+                "note": f.get("note", ""), "review": f.get("review", ""),
             }
         )  # fmt: skip
     return rows
@@ -466,6 +602,8 @@ def mapping_summary(mapping: dict[str, Any]) -> dict[str, int]:
         "unmapped": len(unmapped),
         "mandatory_unmapped": sum(1 for f in unmapped if f.get("mandatory")),
         "mandatory": sum(1 for f in fields if f.get("mandatory")),
+        "approved": sum(1 for f in fields if f.get("review") == "approved"),
+        "changes": sum(1 for f in fields if f.get("review") == "changes"),
     }
 
 
@@ -562,7 +700,12 @@ def guess_roles(headers: list[str]) -> dict[str, int | None]:
     return roles
 
 
-def read_template(filename: str, content: bytes, sheet: str | None = None) -> dict[str, Any]:
+def read_template(
+    filename: str,
+    content: bytes,
+    sheet: str | None = None,
+    is_header: Callable[[list[str]], bool] | None = None,
+) -> dict[str, Any]:
     """Read an uploaded or pasted table of target fields. Returns headers, rows, the sheets of
     an Excel file and whether a header row was found."""
     if len(content) > MAX_UPLOAD:
@@ -600,7 +743,8 @@ def read_template(filename: str, content: bytes, sheet: str | None = None) -> di
     # Excel templates often start with title rows; the header is the first row naming a field.
     # Text and CSV files start with the header row (if any); only Excel has title rows above it.
     scan = 15 if suffix == ".xlsx" else 1
-    header_at = next((i for i, row in enumerate(grid[:scan]) if _looks_like_header(row)), None)
+    test = is_header or _looks_like_header
+    header_at = next((i for i, row in enumerate(grid[:scan]) if test(row)), None)
     width = max(len(r) for r in grid)
     if header_at is None:
         headers = [f"Column {i + 1}" for i in range(width)]

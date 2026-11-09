@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% macro rowhtml(r, i) %}
-<tr class="maprow" data-unmapped="{{ '1' if r.rule == 'UNMAPPED' else '0' }}" data-mandatory="{{ '1' if r.mandatory else '0' }}" data-name="{{ r.target|lower }}">
+<tr class="maprow" data-unmapped="{{ '1' if r.rule == 'UNMAPPED' else '0' }}" data-mandatory="{{ '1' if r.mandatory else '0' }}" data-name="{{ r.target|lower }}" data-order="{{ i }}">
+ <td><input type="checkbox" class="pick" title="Select this field for the bulk tools"></td>
  <td><input type="text" name="r{{ i }}_target" value="{{ r.target }}" size="16">
    <div class="hint mapstate">{% if r.rule == 'UNMAPPED' %}<span class="badge {{ 'WARN' if r.mandatory else 'NOTRUN' }}">not mapped</span>{% endif %}{% if r.key %} <span class="badge OK">key</span>{% endif %}</div></td>
  <td><select name="r{{ i }}_rule" class="rule-type">{% for t in rule_types %}<option value="{{ t }}" {{ 'selected' if t == r.rule }}>{{ '(not mapped)' if t == 'UNMAPPED' else t }}</option>{% endfor %}</select></td>
@@ -15,6 +16,8 @@
  <td><input type="text" name="r{{ i }}_length" value="{{ r.length }}" size="4"></td>
  <td><input type="checkbox" name="r{{ i }}_mandatory" {{ 'checked' if r.mandatory }}></td>
  <td><input type="checkbox" name="r{{ i }}_key" {{ 'checked' if r.key }}></td>
+ <td><input type="text" name="r{{ i }}_note" value="{{ r.note }}" size="20" placeholder="comment"></td>
+ <td><select name="r{{ i }}_review" class="review"><option value="">open</option><option value="approved" {{ 'selected' if r.review == 'approved' }}>approved</option><option value="changes" {{ 'selected' if r.review == 'changes' }}>changes needed</option></select></td>
  <td><input type="checkbox" name="r{{ i }}_delete" title="Delete this field"></td>
 </tr>
 {% endmacro %}
@@ -31,6 +34,14 @@
  <div class="card"><b>Progress</b><br>
   <span style="font-size:20px">{{ summary.total - summary.unmapped }} of {{ summary.total }}</span> target fields mapped<br>
   {% if summary.mandatory_unmapped %}<span class="badge WARN">{{ summary.mandatory_unmapped }} mandatory field(s) not mapped</span>{% else %}<span class="badge OK">all mandatory fields mapped</span>{% endif %}
+  <div class="hint">Review: {{ summary.approved }} approved, {{ summary.changes }} need changes, {{ summary.total - summary.approved - summary.changes }} open</div>
+ </div>
+ <div class="card"><b>Mapping specification</b> <span class="hint">for business review</span><br>
+  <a class="button secondary small" href="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/spec.xlsx">Download Excel</a>
+  <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/spec" enctype="multipart/form-data" style="margin-top:6px">
+   <input type="file" name="file" accept=".xlsx,.csv,.txt,.tsv" required> <button class="secondary small">Import back</button>
+  </form>
+  <div class="hint">Bring a mapping from Excel/CSV too: Target field, Rule, Source columns.</div>
  </div>
  <form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/source">
   <b>Filled from source</b><br><select name="source">{% for s in sources %}<option {{ 'selected' if s.name == structure.source }}>{{ s.name }}</option>{% endfor %}</select>
@@ -47,7 +58,63 @@
 <b>CONCAT</b> join columns &middot; <b>SUBSTRING</b> part of a column &middot; <b>NOT_MIGRATED</b> left out of the target table &middot; <b>SQL</b> your own expression.
 Mandatory, length, data type and key become checks automatically. Saving rewrites the mapping file without comments.</div>
 
-<datalist id="cols">{% for c in columns %}<option value="{{ c }}">{% endfor %}</datalist>
+<div class="card" style="margin-bottom:12px"><b>Joined sources</b>
+ <span class="hint">more tables feeding this structure (e.g. addresses, bank details). Use their columns as <code>source.COLUMN</code>; the main source is <code>{{ structure.source }}</code>.</span>
+ {% for j in structure.joins %}
+ <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/joins/remove" class="row" style="margin-top:6px">
+  <span><b>{{ j.source }}</b> ({{ j.type }} join, on {% for k in j.keys %}{{ k.main }} = {{ k.other }}{{ ', ' if not loop.last }}{% endfor %}; repeated keys: {{ 'error' if j.on_duplicates == 'error' else 'first row only' }})</span>
+  <input type="hidden" name="source" value="{{ j.source }}"><button class="secondary small">Remove</button>
+ </form>
+ {% endfor %}
+ {% if joinable %}
+ <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/joins" class="row" style="margin-top:6px">
+  <select name="source">{% for n in joinable %}<option>{{ n }}</option>{% endfor %}</select>
+  <select name="type"><option value="left">keep all main rows (left)</option><option value="inner">only matching rows (inner)</option></select>
+  {% for i in range(3) %}<span><input type="text" name="main{{ i }}" list="cols-main" size="12" placeholder="{{ structure.source }} column"> = <input type="text" name="other{{ i }}" size="12" placeholder="joined column"></span>{% endfor %}
+  <select name="on_duplicates"><option value="error">repeated key: stop</option><option value="first">repeated key: first row</option></select>
+  <button class="secondary small">Add join</button>
+ </form>
+ <datalist id="cols-main">{% for c in columns %}<option value="{{ c }}">{% endfor %}</datalist>
+ {% else %}<div class="hint">Add a second source to the object (Sources tab) to join it here.</div>{% endif %}
+</div>
+
+<div class="card" style="margin-bottom:12px"><b>Row sets (UNION ALL)</b>
+ <span class="hint">more rows for the same target table: each row set reads its own main source (and joins) with this mapping, and only the fields you list use a different rule. The mapping below is the rows from <code>{{ structure.source }}</code>.</span>
+ {% for u in unions %}
+ <div style="margin-top:8px;border-top:1px solid #ddd;padding-top:6px">
+  <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/rowsets/remove" class="row">
+   <span><b>{{ u.name }}</b> reads <b>{{ u.source }}</b>{% for j in u.joins %}, joined with {{ j.source }} on {% for k in j.keys %}{{ k.main }} = {{ k.other }}{{ ', ' if not loop.last }}{% endfor %}{% endfor %}</span>
+   <input type="hidden" name="name" value="{{ u.name }}"><button class="secondary small">Remove row set</button>
+  </form>
+  <table style="margin:6px 0"><thead><tr><th>Field</th><th>Own rule in {{ u.name }}</th><th></th></tr></thead><tbody>
+  {% for r in u.overrides %}<tr><td>{{ r.target }}</td><td>{{ r.rule }} {{ r.src }} {{ r.a1 }}{{ ' ' ~ r.a2 if r.a2 }}{{ ' ' ~ r.a3 if r.a3 }}</td>
+   <td><form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/rowsets/override"><input type="hidden" name="row_set" value="{{ u.name }}"><input type="hidden" name="field" value="{{ r.target }}"><input type="hidden" name="remove" value="1"><button class="secondary small">Use the main rule</button></form></td></tr>
+  {% else %}<tr><td colspan="3" class="hint">No own rules yet: every field uses the main rule.</td></tr>{% endfor %}
+  </tbody></table>
+  <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/rowsets/override" class="row">
+   <input type="hidden" name="row_set" value="{{ u.name }}">
+   <select name="field">{% for t in target_names %}<option>{{ t }}</option>{% endfor %}</select>
+   <select name="rule">{% for t in rule_types if t != 'UNMAPPED' %}<option>{{ t }}</option>{% endfor %}</select>
+   <input type="text" name="src" list="cols-{{ u.name }}" size="16" placeholder="source column(s)">
+   <input type="text" name="a1" size="14" placeholder="setting 1 (value / list / separator)">
+   <input type="text" name="a2" size="10" placeholder="setting 2"><input type="text" name="a3" size="10" placeholder="setting 3">
+   <button class="secondary small">Set own rule</button>
+  </form>
+  <datalist id="cols-{{ u.name }}">{% for c in u.columns %}<option value="{{ c }}">{% endfor %}</datalist>
+ </div>
+ {% endfor %}
+ <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/rowsets" class="row" style="margin-top:8px;border-top:1px solid #ddd;padding-top:6px">
+  <input type="text" name="name" size="12" placeholder="name, e.g. FLVN01" required>
+  <label class="inline">reads <select name="source">{% for x in all_sources %}<option>{{ x.name }}</option>{% endfor %}</select></label>
+  <label class="inline">joined with <select name="join_source"><option value="">(nothing)</option>{% for x in all_sources %}<option>{{ x.name }}</option>{% endfor %}</select></label>
+  {% for i in range(2) %}<span><input type="text" name="main{{ i }}" size="10" placeholder="column here"> = <input type="text" name="other{{ i }}" size="10" placeholder="column there"></span>{% endfor %}
+  <select name="type"><option value="left">left</option><option value="inner">inner</option></select>
+  <select name="on_duplicates"><option value="error">repeated key: stop</option><option value="first">repeated key: first row</option></select>
+  <button class="secondary small">Add row set</button>
+ </form>
+</div>
+
+<datalist id="cols">{% for c in all_columns %}<option value="{{ c }}">{% endfor %}</datalist>
 <datalist id="xrefs">{% for x in xrefs %}<option value="{{ x }}">{% endfor %}</datalist>
 
 <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}">
@@ -55,17 +122,35 @@ Mandatory, length, data type and key become checks automatically. Saving rewrite
  <div><label>Find a field</label><input type="text" id="map-search" placeholder="type part of a name"></div>
  <label class="inline"><input type="checkbox" id="only-unmapped"> only not mapped</label>
  <label class="inline"><input type="checkbox" id="only-mandatory"> only mandatory</label>
+ <div><label>Review</label><select id="only-review"><option value="*">any</option><option value="open">open</option><option value="approved">approved</option><option value="changes">changes needed</option></select></div>
+ <div><label>Sort</label><select id="map-sort"><option value="order">as in the structure</option><option value="status">not mapped first</option><option value="name">by name</option></select></div>
+</div>
+<div class="card" id="bulk" style="margin-bottom:8px">
+ <b>Bulk tools</b> <span class="hint"><span id="picked">0</span> selected &middot; tick fields in the first column (the box in the header ticks all visible rows)</span>
+ <div class="row" style="margin-top:6px">
+  <select id="bulk-rule">{% for t in rule_types %}<option value="{{ t }}">{{ '(not mapped)' if t == 'UNMAPPED' else t }}</option>{% endfor %}</select>
+  <input type="text" id="bulk-src" list="cols" size="16" placeholder="source column">
+  <input type="text" id="bulk-a1" size="14" placeholder="setting 1">
+  <input type="text" id="bulk-a2" size="10" placeholder="setting 2">
+  <input type="text" id="bulk-a3" size="10" placeholder="setting 3">
+  <button type="button" class="secondary small" id="bulk-apply" title="Give every selected field this rule (not saved until you press Save mapping)">Set this rule</button>
+  <button type="button" class="secondary small" id="bulk-copy" title="Copy the rule of the first selected field to the other selected fields">Copy first rule to the rest</button>
+  <select id="bulk-review"><option value="">open</option><option value="approved">approved</option><option value="changes">changes needed</option></select>
+  <button type="button" class="secondary small" id="bulk-mark">Set review</button>
+ </div>
+ <div class="hint">Changes are made on this page only. Press <b>Save mapping</b> to keep them.</div>
 </div>
 <div class="scroll"><table class="mapgrid">
-<thead><tr><th>Target field</th><th>Rule</th><th>Rule settings</th><th>Description</th><th>Type</th><th>Max length</th><th>Mandatory</th><th>Key</th><th>Delete</th></tr></thead>
+<thead><tr><th><input type="checkbox" id="pick-all" title="Select all visible fields"></th><th>Target field</th><th>Rule</th><th>Rule settings</th><th>Description</th><th>Type</th><th>Max length</th><th>Mandatory</th><th>Key</th><th>Note</th><th>Review</th><th>Delete</th></tr></thead>
 <tbody id="maprows">
 {% for r in rows %}{{ rowhtml(r, loop.index0) }}{% endfor %}
 </tbody></table></div>
-<template id="row-template">{{ rowhtml({'target':'','desc':'','dtype':'string','length':'','mandatory':False,'key':False,'rule':'UNMAPPED','src':'','a1':'','a2':'','a3':''}, '__i__') }}</template>
+<template id="row-template">{{ rowhtml({'target':'','desc':'','dtype':'string','length':'','mandatory':False,'key':False,'rule':'UNMAPPED','src':'','a1':'','a2':'','a3':'','note':'','review':''}, '__i__') }}</template>
 <p class="row">
  <button type="button" class="secondary" id="add-row">+ Add a field</button>
  <button name="action" value="auto_map" class="secondary" title="Not-mapped fields whose name matches a source column are set to MOVE">Auto-map by matching names</button>
  <button name="action" value="save">Save mapping</button>
+ <a class="button secondary" href="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/preview" title="Shows the first rows as Transform would build them (save first)">Preview the result</a>
 </p>
 </form>
 {% if not columns %}<p class="hint">Source columns could not be listed (a database source needs an Extract first), so the column box is free text.</p>{% endif %}

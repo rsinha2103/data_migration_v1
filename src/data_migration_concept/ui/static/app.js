@@ -85,17 +85,77 @@ document.addEventListener('DOMContentLoaded', () => {
   if (search) {
     const onlyUnmapped = document.getElementById('only-unmapped');
     const onlyMandatory = document.getElementById('only-mandatory');
+    const onlyReview = document.getElementById('only-review');
+    const rows = () => Array.from(document.querySelectorAll('tr.maprow'));
     const filter = () => {
       const needle = search.value.trim().toLowerCase();
-      document.querySelectorAll('tr.maprow').forEach(row => {
+      rows().forEach(row => {
+        const review = row.querySelector('.review').value || 'open';
         const show = (!needle || row.dataset.name.includes(needle)
             || row.querySelector('[name$="_target"]').value.toLowerCase().includes(needle))
           && (!onlyUnmapped.checked || row.querySelector('.rule-type').value === 'UNMAPPED')
-          && (!onlyMandatory.checked || row.querySelector('[name$="_mandatory"]').checked);
+          && (!onlyMandatory.checked || row.querySelector('[name$="_mandatory"]').checked)
+          && (onlyReview.value === '*' || onlyReview.value === review);
         row.classList.toggle('hidden', !show);
       });
     };
-    [search, onlyUnmapped, onlyMandatory].forEach(el => el.addEventListener('input', filter));
+    [search, onlyUnmapped, onlyMandatory, onlyReview].forEach(el => el.addEventListener('input', filter));
+
+    // sort the rows (the save order follows the form order, so sorting also reorders the file)
+    const sorter = document.getElementById('map-sort');
+    sorter.addEventListener('change', () => {
+      const body = document.getElementById('maprows');
+      const key = row => sorter.value === 'name'
+        ? row.querySelector('[name$="_target"]').value.toLowerCase()
+        : sorter.value === 'status'
+          ? (row.querySelector('.rule-type').value === 'UNMAPPED' ? '0' : '1')
+            + (row.querySelector('[name$="_mandatory"]').checked ? '0' : '1')
+            + String(row.dataset.order).padStart(6, '0')
+          : String(row.dataset.order).padStart(6, '0');
+      rows().sort((a, b) => key(a).localeCompare(key(b))).forEach(r => body.appendChild(r));
+    });
+
+    // bulk tools: act on the ticked rows; nothing is saved until "Save mapping"
+    const picked = () => rows().filter(r => r.querySelector('.pick').checked);
+    const count = () => { document.getElementById('picked').textContent = picked().length; };
+    document.getElementById('maprows').addEventListener('change', e => {
+      if (e.target.classList.contains('pick')) count();
+    });
+    document.getElementById('pick-all').addEventListener('change', e => {
+      rows().filter(r => !r.classList.contains('hidden'))
+        .forEach(r => { r.querySelector('.pick').checked = e.target.checked; });
+      count();
+    });
+    const setRule = (row, type, vals) => {
+      const sel = row.querySelector('.rule-type');
+      sel.value = type;
+      sel.dispatchEvent(new Event('change'));
+      ['src', 'a1', 'a2', 'a3'].forEach((k, i) => {
+        const el = row.querySelector('.p-' + k + ' input, .p-' + k + ' select');
+        if (el && vals[i] !== undefined && vals[i] !== '') el.value = vals[i];
+      });
+    };
+    const need = () => {
+      const chosen = picked();
+      if (!chosen.length) alert('Tick the fields to change first.');
+      return chosen;
+    };
+    document.getElementById('bulk-apply').addEventListener('click', () => {
+      const vals = ['bulk-src', 'bulk-a1', 'bulk-a2', 'bulk-a3'].map(id => document.getElementById(id).value);
+      need().forEach(r => setRule(r, document.getElementById('bulk-rule').value, vals));
+    });
+    document.getElementById('bulk-copy').addEventListener('click', () => {
+      const chosen = need();
+      if (chosen.length < 2) { if (chosen.length) alert('Tick at least two fields: the first one is copied to the others.'); return; }
+      const first = chosen[0];
+      const val = k => { const el = first.querySelector('.p-' + k + ' input, .p-' + k + ' select'); return el ? el.value : ''; };
+      const vals = ['src', 'a1', 'a2', 'a3'].map(val);
+      chosen.slice(1).forEach(r => setRule(r, first.querySelector('.rule-type').value, vals));
+    });
+    document.getElementById('bulk-mark').addEventListener('click', () => {
+      const v = document.getElementById('bulk-review').value;
+      need().forEach(r => { r.querySelector('.review').value = v; });
+    });
   }
 
   // fill an XREF textarea with the unmapped values found in the data

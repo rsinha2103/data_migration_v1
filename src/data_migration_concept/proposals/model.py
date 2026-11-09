@@ -65,6 +65,16 @@ class StructureFacts:
     source: str
     fields: list[FieldFacts]
     custom_sql: bool = False
+    joins: list[str] = field(default_factory=list)  # names of the joined sources
+    unions: bool = False  # more row sets are added with UNION ALL
+
+    def locate(self, ref: str) -> tuple[str, str]:
+        """(source, column) a mapping reference points at: `COL` is in the structure's own
+        source, `adrc.COL` in the joined source adrc."""
+        head, dot, rest = ref.partition(".")
+        if dot and head in self.joins:
+            return head, rest
+        return self.source, ref
 
 
 def _no_values(source: str, column: str) -> list[str] | None:

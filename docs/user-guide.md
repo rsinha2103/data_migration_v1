@@ -64,7 +64,50 @@ A **blank template** to fill in is available as Excel or CSV on the same page (o
 
 Key fields (`key`) get an automatic uniqueness check on their combination. To combine two files, define the structure from one and use **Update the target structure** on the mapping page with the other: new fields are added, description, type, length, mandatory and key are updated, and your mapping rules stay. For the Cockpit, the XML has the descriptions, types and lengths, while the zip marks every key field.
 
-On the mapping page, **Auto-map by matching names** sets every not-yet-mapped field whose name equals a source column (ignoring case, spaces and `_`) to MOVE, and the progress box shows how many fields and mandatory fields are still unmapped. Large structures can be filtered by name, "only not mapped" and "only mandatory".
+On the mapping page, **Auto-map by matching names** sets every not-yet-mapped field whose name equals a source column (ignoring case, spaces and `_`) to MOVE, and the progress box shows how many fields and mandatory fields are still unmapped. Large structures can be filtered by name, "only not mapped", "only mandatory" and review state, and sorted by name or "not mapped first".
+
+#### Several source tables for one structure
+When a structure needs data from more than one table (for example addresses next to the general data), add the tables as sources of the object, then use **Joined sources** on the mapping page: choose the table and the key columns (main column = joined column). In rules, write its columns as `table.COLUMN`; the structure's own source needs no prefix. A *left* join keeps every row of the main source; an *inner* join only the matching ones. If the joined table repeats a key, the transform stops and names the keys, or - if you chose "first row" - uses the first one. In `object.yaml`:
+
+```yaml
+structures:
+  - name: general
+    source: lfa1
+    joins:
+      - source: addr
+        type: left            # or inner
+        on_duplicates: error  # or first
+        keys: [{main: LIFNR, other: LIFNR}]
+    mapping: mappings/general.yaml
+```
+
+#### Several sets of rows for one structure (UNION ALL)
+To put more rows below the main ones - for example one vendor row per company code (`BP_ROLE = FLVN00`, from LFB1) *and* one per purchasing organisation (`BP_ROLE = FLVN01`, from LFM1) - add a **row set** in the **Row sets (UNION ALL)** card. Each row set has its own main source and optional join (here LFM1 joined with LFA1 on LIFNR) and **uses the structure's mapping**; list only the fields that differ (`BP_ROLE`, the organisation column) under "Set own rule". The target table holds the rows of all row sets; Preview shows them labelled, and the row-count reconciliation adds up every row set's source rows. A field must be `NOT_MIGRATED` in all row sets or in none. Key/value reconciliations and the bulk tools and Excel specification work on the main rows; rules of a row set are edited in its card. In `object.yaml`:
+
+```yaml
+structures:
+  - name: vendor
+    source: lfb1
+    joins: [{source: lfa1, keys: [{main: LIFNR, other: LIFNR}]}]
+    unions:
+      - name: FLVN01
+        source: lfm1
+        joins: [{source: lfa1, keys: [{main: LIFNR, other: LIFNR}]}]
+        overrides:
+          BP_ROLE: {type: CONSTANT, value: FLVN01}
+          ORG:     {type: MOVE, source_field: EKORG}
+    mapping: mappings/vendor.yaml
+```
+
+Use custom SQL instead when the rows need logic a mapping cannot express.
+
+#### Mapping many fields quickly
+- **Bulk tools**: tick fields in the first column, then *Set this rule* (one rule for all of them), *Copy first rule to the rest*, or *Set review*. Nothing is saved until **Save mapping**.
+- **Import from Excel/CSV**: *Import back* on the mapping page reads a table with the columns Target field, Rule and Source (plus Setting 1-3, Note, Review). It shows every difference first; you confirm before anything is written.
+- **Preview the result** shows the first rows as Transform would build them, the source values under each result, mandatory/too-long problems, and the values an XREF list does not cover - before you run anything.
+
+#### Mapping specification for business review
+**Download Excel** on the mapping page gives one row per target field with the rule in plain words. Reviewers may change Rule, Source, Setting 1-3, Note and Review (open / approved / changes needed) and send the file back; **Import back** shows the differences and applies them after confirmation. The progress box counts approved fields.
 
 Every change you make is checked against the whole project before it is kept; if it would break something, the file is left as it was and you are told why. Saving from a form rewrites that YAML file without its comments; the **Files** page lets you edit the raw YAML, SQL and XREF files instead. The working database is a SQLite file in the project folder unless you set the environment variable named in `project.yaml` (for example to a PostgreSQL URL) before starting `dmc ui`. The interface only answers on localhost and runs one operation at a time.
 

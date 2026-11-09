@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="crumbs"><a href="/p/{{ project }}/o/{{ obj }}/structures/{{ structure }}">&laquo; back to {{ structure }}</a></div>
+<h2 style="margin-top:0">Import mapping from {{ filename }}</h2>
+<div class="explain">Nothing has been changed yet. Below is every difference between the file and the current mapping of <b>{{ structure }}</b>. Confirm to write them.</div>
+
+{% if diff.problems %}
+<div class="card"><b>Rows that cannot be imported</b> <span class="hint">these keep their current rule</span>
+<ul>{% for p in diff.problems %}<li>{{ p }}</li>{% endfor %}</ul></div>
+{% endif %}
+{% if diff.unknown %}
+<div class="card"><b>{{ diff.unknown|length }} field(s) in the file are not in the target structure</b> <span class="hint">ignored: {{ diff.unknown[:15]|join(', ') }}{{ ' ...' if diff.unknown|length > 15 }}</span></div>
+{% endif %}
+
+{% if diff.changes %}
+<div class="scroll"><table>
+<thead><tr><th>Target field</th><th>What</th><th>Now</th><th>In the file</th></tr></thead>
+<tbody>{% for c in diff.changes %}
+<tr><td>{{ c.target }}</td><td>{{ c.what }}</td><td>{{ c.old or '-' }}</td><td><b>{{ c.new or '-' }}</b></td></tr>
+{% endfor %}</tbody></table></div>
+<form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure }}/spec/{{ token }}" class="row" style="margin-top:12px">
+ <button>Import {{ diff.changes|length }} change(s)</button>
+ <a class="button secondary" href="/p/{{ project }}/o/{{ obj }}/structures/{{ structure }}">Cancel</a>
+</form>
+<p class="hint">{{ diff.unchanged }} field(s) are the same as now.</p>
+{% else %}
+<p>The file matches the current mapping - there is nothing to import.</p>
+<p><a class="button secondary" href="/p/{{ project }}/o/{{ obj }}/structures/{{ structure }}">Back</a></p>
+{% endif %}
+{% endblock %}

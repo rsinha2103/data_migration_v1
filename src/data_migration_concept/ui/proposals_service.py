@@ -43,7 +43,16 @@ def build_facts(ctx: Ctx, obj_name: str) -> ObjectFacts:
             )  # fmt: skip
             for f in (mapping.fields if mapping else [])
         ]
-        structures.append(StructureFacts(st.name, st.source, fields, custom_sql=mapping is None))
+        structures.append(
+            StructureFacts(
+                st.name,
+                st.source,
+                fields,
+                custom_sql=mapping is None,
+                joins=[j.source for j in st.joins],
+                unions=bool(st.unions),
+            )
+        )
 
     source_columns: dict[str, list[str]] = {}
     profiles: dict[str, dict[str, ColumnProfile]] = {}

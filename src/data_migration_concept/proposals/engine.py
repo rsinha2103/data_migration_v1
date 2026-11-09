@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from data_migration_concept.checks.builtin import TYPE_VALIDATORS
+from data_migration_concept.profile.profile import ColumnProfile
 from data_migration_concept.proposals.catalog import (
     DOMAINS,
     NAME_CHECKS,
@@ -36,6 +37,14 @@ def _squash(text: str) -> str:
 
 def _active(structure: StructureFacts) -> list[FieldFacts]:
     return [f for f in structure.fields if f.rule.get("type") != "NOT_MIGRATED"]
+
+
+def _profile(facts: ObjectFacts, st: StructureFacts, column: str | None) -> ColumnProfile | None:
+    """The staged column a mapping reference points at (own source or a joined one)."""
+    if column is None:
+        return None
+    source, name = st.locate(column)
+    return facts.profiles.get(source, {}).get(name)
 
 
 def _rule_source(field: FieldFacts) -> str | None:
@@ -80,6 +89,10 @@ def mapping_proposals(facts: ObjectFacts) -> list[Proposal]:
         squashed: dict[str, list[str]] = {}
         for c in columns:
             squashed.setdefault(_squash(c), []).append(c)
+        joined_sq: dict[str, list[str]] = {}
+        for js in st.joins:
+            for c in facts.source_columns.get(js, []):
+                joined_sq.setdefault(_squash(c), []).append(f"{js}.{c}")
         used = {_rule_source(f) for f in st.fields}
         # value-based: one field per kind of coded value, and none when a field of that kind is already mapped
         claimed = {
@@ -106,6 +119,16 @@ def mapping_proposals(facts: ObjectFacts) -> list[Proposal]:
                 if near and len(squashed[near[0]]) == 1:
                     column, confidence = squashed[near[0]][0], "medium"
                     why = f"The source column {column} has a very similar name."
+            if column is None and joined_sq:
+                found = joined_sq.get(base, [])
+                alt = [c for s in SYNONYMS.get(base, ()) for c in joined_sq.get(s, [])]
+                if len(found) == 1 or (not found and len(alt) == 1):
+                    column, confidence = (found or alt)[0], "medium"
+                    why = (
+                        f"{column} (a joined source) has the same name as the target field."
+                        if found
+                        else f"{column} is a common name for {f.name} in legacy systems."
+                    )
             if column is None and not re.search(r"\d$", f.name):
                 domain = domain_for_field(f.name)
                 if domain is not None and domain.key not in claimed:
@@ -158,7 +181,7 @@ def xref_proposals(facts: ObjectFacts) -> list[Proposal]:
         seen: dict[str, None] = {}
         observed = False
         for st, _f, column in items:
-            values = facts.distinct(st.source, column)
+            values = facts.distinct(*st.locate(column))
             if values is not None:
                 observed = True
                 for v in values:
@@ -277,8 +300,8 @@ def _impact(
     """Test-run a proposed check on the staged values of the source column the field is copied
     from. None when that cannot be known (not extracted, or the field is not a plain MOVE)."""
     column = _rule_source(f)
-    profile = facts.profiles.get(st.source, {}).get(column or "")
-    counts = facts.value_counts(st.source, column) if column else None
+    profile = _profile(facts, st, column)
+    counts = facts.value_counts(*st.locate(column)) if column else None
     if profile is None or counts is None:
         return None
     total = profile.row_count
@@ -363,7 +386,7 @@ def check_proposals(facts: ObjectFacts) -> list[Proposal]:
                     library.setdefault(rule.key, (rule, []))[1].append((f.name, entry, f))
                     covered = True
             column = _rule_source(f)
-            profile = facts.profiles.get(st.source, {}).get(column or "")
+            profile = _profile(facts, st, column)
             if profile is None or column is None:
                 continue
             present = profile.row_count - profile.empty_count
@@ -372,7 +395,7 @@ def check_proposals(facts: ObjectFacts) -> list[Proposal]:
                 not covered and not is_domain and profile.row_count >= 10
                 and 2 <= profile.distinct_count <= min(MAX_ALLOWED_VALUES, profile.row_count // 2)
             ):  # fmt: skip
-                values = facts.distinct(st.source, column)
+                values = facts.distinct(*st.locate(column))
                 if values and len(values) <= MAX_ALLOWED_VALUES:
                     clean = sorted({v.strip() for v in values if v.strip()})
                     entry = _entry(st.name, f.name, "allowed", "ALLOWED_VALUES", {"field": f.name, "values": clean}, "warn",
@@ -505,11 +528,22 @@ def recon_proposals(facts: ObjectFacts) -> list[Proposal]:
         if st.custom_sql:
             continue
         name = identifier(st.name)
+        if st.unions:  # the row count covers all row sets; key/value recons read the main one only
+            add(st, {"name": f"{name}_row_count", "structure": st.name, "type": "COUNT"},
+                f"{st.name}: the target has as many rows as all its row sets together",
+                "The simplest proof that nothing was lost or added on the way.", "COUNT")  # fmt: skip
+            continue
         add(st, {"name": f"{name}_row_count", "structure": st.name, "type": "COUNT"},
             f"{st.name}: the target has as many rows as the source",
             "The simplest proof that nothing was lost or added on the way.", "COUNT")  # fmt: skip
         keys = [f for f in st.fields if f.key]
-        key_sources = [_rule_source(f) for f in keys]
+
+        # reconciliation reads the structure's own source table, never a joined one
+        def own(f: FieldFacts, st: StructureFacts = st) -> str | None:
+            ref = _rule_source(f)
+            return ref if ref and st.locate(ref)[0] == st.source else None
+
+        key_sources = [own(f) for f in keys]
         if keys and all(key_sources):
             source_key = [s for s in key_sources if s]
             target_key = [f.name for f in keys]
@@ -518,7 +552,7 @@ def recon_proposals(facts: ObjectFacts) -> list[Proposal]:
                 f"{st.name}: every source key arrives, and nothing extra",
                 f"Compares the key ({', '.join(target_key)}) of every source row with the target.",
                 f"KEYS {', '.join(source_key)} -> {', '.join(target_key)}")  # fmt: skip
-            if any(_rule_source(f) for f in st.fields if not f.key):
+            if any(own(f) for f in st.fields if not f.key):
                 add(st, {"name": f"{name}_values", "structure": st.name, "type": "FIELDS",
                          "source_key": source_key, "target_key": target_key, "fields": "auto"},
                     f"{st.name}: copied fields have the same values in the target",
@@ -526,10 +560,10 @@ def recon_proposals(facts: ObjectFacts) -> list[Proposal]:
                     "FIELDS auto")  # fmt: skip
         sums = [
             f for f in _active(st)
-            if f.data_type in ("integer", "decimal") and _rule_source(f)
+            if f.data_type in ("integer", "decimal") and own(f)
         ][:MAX_TOTALS_PER_STRUCTURE]  # fmt: skip
         for f in sums:
-            source = _rule_source(f) or ""
+            source = own(f) or ""
             add(st, {"name": f"{name}_total_{identifier(f.name)}", "structure": st.name,
                      "type": "TOTALS", "source_field": source, "target_field": f.name, "agg": "sum"},
                 f"{st.name}: the total of {f.name} is unchanged",
@@ -599,13 +633,13 @@ def _applies(kind: str, f: FieldFacts) -> bool:
 def _rule_impact(facts: ObjectFacts, st: StructureFacts, f: FieldFacts, kind: str) -> Impact | None:
     """How many staged rows a structure rule would flag today (plain MOVE fields only)."""
     column = _rule_source(f)
-    profile = facts.profiles.get(st.source, {}).get(column or "")
+    profile = _profile(facts, st, column)
     if profile is None or column is None:
         return None
     total = profile.row_count
     if kind == "mandatory":
         return Impact(profile.empty_count, total, [])
-    counts = facts.value_counts(st.source, column)
+    counts = facts.value_counts(*st.locate(column))
     if kind == "key":
         present = total - profile.empty_count
         return Impact(max(0, present - profile.distinct_count), total, [])
