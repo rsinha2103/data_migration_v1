@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     CONCAT: ['Source columns (comma separated)', 'Separator', '', ''],
     SUBSTRING: ['Source column', 'Start (1 = first)', 'Length', ''],
     NOT_MIGRATED: ['', '', '', ''],
-    SQL: ['', 'SQL expression (alias s = staging row)', '', ''],
+    SQL: ['', 'SQL expression (s = this row; other sources: {{ stg.name }})', '', ''],
   };
   const refresh = row => {
     const type = row.querySelector('.rule-type').value;
@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
       dflt.querySelectorAll('input').forEach(el => { el.disabled = true; });
     }
   };
-  document.querySelectorAll('tr.maprow').forEach(row => {
+  document.querySelectorAll('tr.maprow, tr.ovrow').forEach(row => {
     refresh(row);
     row.querySelector('.rule-type').addEventListener('change', () => refresh(row));
     const unmapped = row.querySelector('.p-a2 select');

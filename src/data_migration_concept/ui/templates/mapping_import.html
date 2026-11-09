@@ -15,9 +15,9 @@
 
 {% if diff.changes %}
 <div class="scroll"><table>
-<thead><tr><th>Target field</th><th>What</th><th>Now</th><th>In the file</th></tr></thead>
+<thead><tr><th>Sheet</th><th>Target field</th><th>What</th><th>Now</th><th>In the file</th></tr></thead>
 <tbody>{% for c in diff.changes %}
-<tr><td>{{ c.target }}</td><td>{{ c.what }}</td><td>{{ c.old or '-' }}</td><td><b>{{ c.new or '-' }}</b></td></tr>
+<tr><td>{{ c.sheet }}</td><td>{{ c.target }}</td><td>{{ c.what }}</td><td>{{ c.old or '-' }}</td><td><b>{{ c.new or '-' }}</b></td></tr>
 {% endfor %}</tbody></table></div>
 <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure }}/spec/{{ token }}" class="row" style="margin-top:12px">
  <button>Import {{ diff.changes|length }} change(s)</button>

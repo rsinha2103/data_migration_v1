@@ -87,29 +87,49 @@ def describe_rule(row: dict[str, Any]) -> str:
     return t
 
 
-def export_xlsx(
-    rows: list[dict[str, Any]], title: str, xrefs: dict[str, list[tuple[str, str]]]
-) -> bytes:
-    from openpyxl import Workbook
+ROW_SET_HEADERS = [h for h in HEADERS if h not in ("Note", "Review")] + ["Own rule"]
+ROW_SET_PREFIX = "Rows "
+
+
+def row_set_sheet_name(name: str) -> str:
+    return f"{ROW_SET_PREFIX}{name}"[:31]
+
+
+def row_set_rows(
+    mapping: dict[str, Any], overrides: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Every field with the rule it uses in a row set: its override, else the main rule."""
+    grid = editor.mapping_rows(
+        {
+            "fields": [
+                {**f, "rule": overrides.get(f["target_field"], f.get("rule", {}))}
+                for f in mapping.get("fields", [])
+            ]
+        }
+    )
+    for r in grid:
+        r["own"] = r["target"] in overrides
+    return grid
+
+
+def _write_sheet(ws: Any, rows: list[dict[str, Any]], headers: list[str]) -> None:
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.datavalidation import DataValidation
 
-    wb = Workbook()
-    ws = wb.active
-    assert ws is not None
-    ws.title = "Mapping"
-    ws.append(HEADERS)
+    ws.append(headers)
     for r in rows:
-        ws.append(
-            [
-                r["target"], r["desc"], r["dtype"], r["length"] or None,
-                "X" if r["mandatory"] else "", "X" if r["key"] else "",
-                "(not mapped)" if r["rule"] == "UNMAPPED" else r["rule"],
-                r["src"], r["a1"], r["a2"], r["a3"], describe_rule(r),
-                r.get("note", ""), REVIEW_LABELS.get(r.get("review", ""), "open"),
-            ]
-        )  # fmt: skip
+        values = {
+            "Target field": r["target"], "Description": r["desc"], "Type": r["dtype"],
+            "Length": r["length"] or None, "Mandatory": "X" if r["mandatory"] else "",
+            "Key": "X" if r["key"] else "",
+            "Rule": "(not mapped)" if r["rule"] == "UNMAPPED" else r["rule"],
+            "Source": r["src"], "Setting 1": r["a1"], "Setting 2": r["a2"],
+            "Setting 3": r["a3"], "Logic (read only)": describe_rule(r),
+            "Note": r.get("note", ""), "Review": REVIEW_LABELS.get(r.get("review", ""), "open"),
+            "Own rule": "own rule" if r.get("own") else "as main",
+        }  # fmt: skip
+        ws.append([values[h] for h in headers])
     head_fill = PatternFill("solid", fgColor="1F3A5F")
     edit_fill = PatternFill("solid", fgColor="FFF4D6")
     for cell in ws[1]:
@@ -119,36 +139,76 @@ def export_xlsx(
     last = len(rows) + 1
     edit_columns = ["Rule", "Source", "Setting 1", "Setting 2", "Setting 3", "Note", "Review"]
     for name in edit_columns:  # the columns a reviewer may change are tinted
-        col = HEADERS.index(name) + 1
+        if name not in headers:
+            continue
+        col = headers.index(name) + 1
         for row in range(2, last + 1):
             ws.cell(row=row, column=col).fill = edit_fill
-    widths = [24, 30, 10, 8, 10, 6, 14, 24, 20, 14, 14, 52, 36, 16]
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = w
+    widths = {
+        "Target field": 24, "Description": 30, "Type": 10, "Length": 8, "Mandatory": 10,
+        "Key": 6, "Rule": 14, "Source": 24, "Setting 1": 20, "Setting 2": 14, "Setting 3": 14,
+        "Logic (read only)": 52, "Note": 36, "Review": 16, "Own rule": 12,
+    }  # fmt: skip
+    for i, h in enumerate(headers, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = widths[h]
+    logic = headers.index("Logic (read only)") + 1
     for row in range(2, last + 1):
-        ws.cell(row=row, column=HEADERS.index("Logic (read only)") + 1).alignment = Alignment(
-            wrap_text=True, vertical="top"
-        )
+        ws.cell(row=row, column=logic).alignment = Alignment(wrap_text=True, vertical="top")
     ws.freeze_panes = "B2"
     if rows:
         rules = ",".join(["(not mapped)"] + editor.RULE_TYPES[1:])
-        rule_col = get_column_letter(HEADERS.index("Rule") + 1)
+        rule_col = get_column_letter(headers.index("Rule") + 1)
         rv = DataValidation(type="list", formula1=f'"{rules}"', allow_blank=True)
         ws.add_data_validation(rv)
         rv.add(f"{rule_col}2:{rule_col}{last}")
-        review_col = get_column_letter(HEADERS.index("Review") + 1)
-        dv = DataValidation(
-            type="list", formula1='"open,approved,changes needed"', allow_blank=True
-        )
-        ws.add_data_validation(dv)
-        dv.add(f"{review_col}2:{review_col}{last}")
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(HEADERS))}{max(last, 2)}"
+        if "Review" in headers:
+            review_col = get_column_letter(headers.index("Review") + 1)
+            dv = DataValidation(
+                type="list", formula1='"open,approved,changes needed"', allow_blank=True
+            )
+            ws.add_data_validation(dv)
+            dv.add(f"{review_col}2:{review_col}{last}")
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(last, 2)}"
+
+
+def export_xlsx(
+    rows: list[dict[str, Any]],
+    title: str,
+    xrefs: dict[str, list[tuple[str, str]]],
+    row_sets: list[dict[str, Any]] | None = None,
+) -> bytes:
+    """`row_sets`: one dict per UNION ALL row set with name, reads (text) and rows (see
+    row_set_rows). Each gets its own sheet 'Rows <name>' next to the main 'Mapping' sheet."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Mapping"
+    _write_sheet(ws, rows, HEADERS)
+    for rs in row_sets or []:
+        _write_sheet(wb.create_sheet(row_set_sheet_name(rs["name"])), rs["rows"], ROW_SET_HEADERS)
 
     guide = wb.create_sheet("How to read")
     guide.append([f"Mapping specification - {title}"])
     guide["A1"].font = Font(bold=True, size=14)
     for line in INSTRUCTIONS:
         guide.append([line])
+    if row_sets:
+        guide.append([""])
+        guide.append(["Row sets (UNION ALL)"])
+        guide.cell(row=guide.max_row, column=1).font = Font(bold=True)
+        guide.append(
+            [
+                "The sheet 'Mapping' holds the main rows. Each row set adds more rows to the same "
+                "target table and has its own sheet; every field there shows the rule it uses "
+                "in that row set ('as main' = same as the Mapping sheet). Change a rule on a row "
+                "set's sheet to give that row set its own."
+            ]
+        )
+        for rs in row_sets:
+            guide.append([f"  {row_set_sheet_name(rs['name'])}: {rs['reads']}"])
     guide.column_dimensions["A"].width = 110
     for name, pairs in xrefs.items():
         sheet = wb.create_sheet(f"List {name}"[:31])
@@ -187,6 +247,7 @@ class Change:
     what: str  # "rule", "note" or "review"
     old: str
     new: str
+    sheet: str = "Mapping"
 
 
 @dataclass
@@ -196,6 +257,8 @@ class SheetDiff:
     unknown: list[str] = field(default_factory=list)  # targets not in the structure
     unchanged: int = 0
     mapping: dict[str, Any] = field(default_factory=dict)
+    # row set name -> its overrides after the import (only for row sets that have a sheet)
+    row_set_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def _rule_type(raw: str, source: str) -> str:
@@ -216,43 +279,48 @@ def _review(raw: str) -> str:
     return ""
 
 
-def diff_sheet(filename: str, content: bytes, mapping: dict[str, Any]) -> SheetDiff:
-    """Compare an uploaded spec with the mapping. Returns the changes it would make and the
-    mapping with them applied; the project is not touched."""
+def _read(filename: str, content: bytes, sheet: str) -> tuple[dict[str, Any], dict[str, int]]:
     table = editor.read_template(
-        filename, content, "Mapping", is_header=lambda row: "target" in _columns(row)
+        filename, content, sheet, is_header=lambda row: "target" in _columns(row)
     )
-    headers, rows = table["headers"], table["rows"]
-    cols = _columns(headers) if table["has_header"] else {}
+    cols = _columns(table["headers"]) if table["has_header"] else {}
     if "target" not in cols:
         raise EditError(
-            "Could not find the column 'Target field' in the file. Use the sheet exported "
-            "from this screen, or a table with the columns Target field, Rule and Source."
+            f"Could not find the column 'Target field' on the sheet '{table['sheet'] or sheet}'. "
+            "Use the sheet exported from this screen, or a table with the columns Target field, "
+            "Rule and Source."
         )
-    if not {"rule", "source", "note", "review"} & cols.keys():
-        raise EditError(
-            "The file has none of the columns Rule, Source, Note or Review - nothing to import."
-        )
+    return table, cols
 
-    current = {f["target_field"]: f for f in mapping.get("fields", [])}
-    by_row = {r["target"]: r for r in editor.mapping_rows(mapping)}
-    out = SheetDiff(mapping={"fields": [dict(f) for f in mapping.get("fields", [])]})
-    fields = {f["target_field"]: f for f in out.mapping["fields"]}
+
+def _diff_table(
+    table: dict[str, Any],
+    cols: dict[str, int],
+    fields: dict[str, dict[str, Any]],
+    sheet: str,
+    out: SheetDiff,
+) -> None:
+    """Compare one sheet with `fields` (target -> field dict whose rule is the one in force for
+    this sheet). Changes are recorded in `out` and applied to `fields`."""
+    by_row = {r["target"]: r for r in editor.mapping_rows({"fields": list(fields.values())})}
     seen: set[str] = set()
 
     def cell(row: list[str], key: str) -> str:
         i = cols.get(key)
         return row[i].strip() if i is not None and i < len(row) else ""
 
-    for n, row in enumerate(rows, start=2):
+    for n, row in enumerate(table["rows"], start=2):
         target = cell(row, "target")
         if not target:
             continue
-        if target not in current:
-            out.unknown.append(target)
+        if target not in fields:
+            if target not in out.unknown:
+                out.unknown.append(target)
             continue
         if target in seen:
-            out.problems.append(f"Row {n}: '{target}' appears twice - the first one is used.")
+            out.problems.append(
+                f"{sheet}, row {n}: '{target}' appears twice - the first one is used."
+            )
             continue
         seen.add(target)
         old = by_row[target]
@@ -274,19 +342,19 @@ def diff_sheet(filename: str, content: bytes, mapping: dict[str, Any]) -> SheetD
                 if kind == "XREF" and not a1:
                     raise ValueError("the name of the list is required (Setting 1)")
             except (ValueError, EditError) as exc:
-                out.problems.append(f"Row {n} ({target}): {exc}")
+                out.problems.append(f"{sheet}, row {n} ({target}): {exc}")
             else:
                 if new_rule != fields[target].get("rule"):
                     new_row = editor.mapping_rows(
                         {"fields": [{**fields[target], "rule": new_rule}]}
                     )[0]
                     out.changes.append(
-                        Change(target, "rule", describe_rule(old), describe_rule(new_row))
+                        Change(target, "rule", describe_rule(old), describe_rule(new_row), sheet)
                     )
                     fields[target]["rule"] = new_rule
         if "note" in cols and cell(row, "note") != str(old.get("note", "")):
             new_note = cell(row, "note")
-            out.changes.append(Change(target, "note", str(old.get("note", "")), new_note))
+            out.changes.append(Change(target, "note", str(old.get("note", "")), new_note, sheet))
             _set_optional(fields[target], "note", new_note)
         if "review" in cols:
             new_review = _review(cell(row, "review"))
@@ -294,12 +362,58 @@ def diff_sheet(filename: str, content: bytes, mapping: dict[str, Any]) -> SheetD
                 out.changes.append(
                     Change(
                         target, "review",
-                        REVIEW_LABELS[old.get("review", "")], REVIEW_LABELS[new_review],
+                        REVIEW_LABELS[old.get("review", "")], REVIEW_LABELS[new_review], sheet,
                     )
                 )  # fmt: skip
                 _set_optional(fields[target], "review", new_review)
         if len(out.changes) == before:
             out.unchanged += 1
+
+
+def diff_sheet(
+    filename: str,
+    content: bytes,
+    mapping: dict[str, Any],
+    row_sets: dict[str, dict[str, Any]] | None = None,
+) -> SheetDiff:
+    """Compare an uploaded spec with the mapping and, for an Excel file with sheets named
+    'Rows <name>', with the row sets (`row_sets`: name -> current overrides). Returns the
+    changes and the mapping / overrides with them applied; the project is not touched."""
+    table, cols = _read(filename, content, "Mapping")
+    if not {"rule", "source", "note", "review"} & cols.keys():
+        raise EditError(
+            "The file has none of the columns Rule, Source, Note or Review - nothing to import."
+        )
+    out = SheetDiff(mapping={"fields": [dict(f) for f in mapping.get("fields", [])]})
+    main_fields = {f["target_field"]: f for f in out.mapping["fields"]}
+    _diff_table(table, cols, main_fields, "Mapping", out)
+
+    original_main = {f["target_field"]: f.get("rule", {}) for f in mapping.get("fields", [])}
+    for name, current in (row_sets or {}).items():
+        sheet = row_set_sheet_name(name)
+        if sheet not in table["sheets"]:
+            continue
+        rs_table, rs_cols = _read(filename, content, sheet)
+        # what the exported sheet showed: the row set's override, else the main rule as it was
+        fields = {
+            t: {
+                "target_field": t,
+                "rule": current.get(t, original_main[t]),
+                **{k: v for k, v in main_fields[t].items() if k in ("data_type", "length")},
+            }
+            for t in main_fields
+        }
+        before = len(out.changes)
+        _diff_table(rs_table, rs_cols, fields, sheet, out)
+        edited = {c.target for c in out.changes[before:] if c.what == "rule"}
+        # a field the sheet did not change keeps its override, or follows the new main rule
+        final = [
+            (t, f["rule"] if t in edited or t in current else main_fields[t]["rule"])
+            for t, f in fields.items()
+        ]
+        out.row_set_overrides[name] = editor.diff_overrides(
+            {t: f.get("rule", {}) for t, f in main_fields.items()}, final
+        )
     return out
 
 

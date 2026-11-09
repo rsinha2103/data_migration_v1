@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from sqlalchemy import Engine, inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from data_migration_concept.config.loader import LoadedObject, LoadedProject
 from data_migration_concept.config.models import (
@@ -22,7 +23,7 @@ from data_migration_concept.transform.generator import (
     to_dialect,
     xref_table,
 )
-from data_migration_concept.transform.runner import _check_joins, _used_xrefs
+from data_migration_concept.transform.runner import _check_joins, _used_xrefs, db_error
 from data_migration_concept.transform.xref import load_xref
 
 MAX_ROWS = 50
@@ -95,8 +96,11 @@ def preview_structure(
     dialect = engine.dialect.name
 
     def run(sql: str) -> list[tuple]:  # type: ignore[type-arg]
-        with engine.connect() as conn:
-            return [tuple(r) for r in conn.execute(text(to_dialect(sql, dialect)))]
+        try:
+            with engine.connect() as conn:
+                return [tuple(r) for r in conn.execute(text(to_dialect(sql, dialect)))]
+        except SQLAlchemyError as exc:
+            raise TransformError(db_error(st.name, exc)) from exc
 
     base = plans[0]
     columns = [

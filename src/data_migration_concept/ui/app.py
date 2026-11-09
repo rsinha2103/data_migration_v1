@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from pathlib import Path
 from typing import Any
@@ -513,6 +514,27 @@ def create_app(workspace: Path) -> FastAPI:
             return fail(url, "Row set not removed.", exc.errors)
         return ok(url, "Row set removed.")
 
+    @app.post("/p/{p}/o/{o}/structures/{s}/rowsets/{name}/rules")
+    async def rowset_rules(request: Request, p: str, o: str, s: str, name: str) -> RedirectResponse:
+        form = await request.form()
+        url = f"/p/{p}/o/{o}/structures/{s}"
+        indexes = sorted({int(m.group(1)) for k in form if (m := re.match(r"^o(\d+)_field$", k))})
+        rules: list[tuple[str, dict[str, Any]]] = []
+        try:
+            for i in indexes:
+
+                def get(key: str, i: int = i) -> str:
+                    return str(form.get(f"o{i}_{key}", "") or "")
+
+                rules.append((get("field"), editor.rule_from_form(
+                    get("rule") or "MOVE", get("src"), get("a1"), get("a2"), get("a3"))))  # fmt: skip
+            own = editor.save_row_set_rules(project_dir(p), o, s, name, rules)
+        except (EditError, ValueError) as exc:
+            lines = exc.errors if isinstance(exc, EditError) else [str(exc)]
+            return fail(url, f"Row set '{name}' not saved.", lines)
+        return ok(url, f"Row set '{name}' saved: {own} field(s) with their own rule, the rest "
+                       "follow the main mapping. Re-run Transform to apply it.")  # fmt: skip
+
     @app.post("/p/{p}/o/{o}/structures/{s}/rowsets/override")
     def rowset_override(
         p: str, o: str, s: str, row_set: str = Form(...), field: str = Form(...),
@@ -593,14 +615,21 @@ def create_app(workspace: Path) -> FastAPI:
                         cols += [f"{j.source}.{c}" for c in source_columns(ctx, o, j.source)]
                 except EditError:
                     pass
+                own = {t: r.model_dump(exclude_none=True) for t, r in u.overrides.items()}
+                main_fields = (
+                    editor.read_yaml(info["obj_root"] / st.mapping) or {} if st.mapping else {}
+                ).get("fields", [])
+                grid = editor.mapping_rows({
+                    "fields": [
+                        {**f, "rule": own.get(f["target_field"], f.get("rule", {}))}
+                        for f in main_fields
+                    ]
+                })  # fmt: skip
+                for r in grid:
+                    r["own"] = r["target"] in own
                 union_info.append({
                     "name": u.name, "source": u.source, "joins": u.joins, "columns": cols,
-                    "overrides": editor.mapping_rows({
-                        "fields": [
-                            {"target_field": t, "rule": r.model_dump(exclude_none=True)}
-                            for t, r in u.overrides.items()
-                        ]
-                    }),
+                    "rows": grid, "own": len(own),
                 })  # fmt: skip
             return page(request, "mapping.html", project=p, obj=o, structure=st, rows=rows,
                         columns=columns, all_columns=all_columns, join_columns=join_columns,
@@ -668,34 +697,61 @@ def create_app(workspace: Path) -> FastAPI:
             )
         return editor.read_yaml(ctx.project.objects[o].root / st.mapping) or {}  # type: ignore[no-any-return]
 
+    def current_row_sets(ctx: Ctx, o: str, s: str) -> dict[str, dict[str, Any]]:
+        """Row set name -> its overrides as plain rule dicts."""
+        st = mapping_context(ctx, o, s)["structure"]
+        return {
+            u.name: {t: r.model_dump(exclude_none=True) for t, r in u.overrides.items()}
+            for u in st.unions
+        }
+
     @app.get("/p/{p}/o/{o}/structures/{s}/spec.xlsx")
     def spec_download(p: str, o: str, s: str) -> Response:
         with open_project(project_dir(p)) as ctx:
             mapping = current_mapping(ctx, o, s)
-        used = {
-            f["rule"].get("xref")
-            for f in mapping.get("fields", [])
-            if f.get("rule", {}).get("type") == "XREF"
-        }
+            overrides = current_row_sets(ctx, o, s)
+            st = mapping_context(ctx, o, s)["structure"]
+            reads = {
+                u.name: f"reads {u.source}"
+                + "".join(
+                    f", joined with {j.source} on "
+                    + ", ".join(f"{k.main} = {k.other}" for k in j.keys)
+                    for j in u.joins
+                )
+                for u in st.unions
+            }
+        rules = [f.get("rule", {}) for f in mapping.get("fields", [])]
+        rules += [r for ov in overrides.values() for r in ov.values()]
+        used = {r.get("xref") for r in rules if r.get("type") == "XREF"}
         lists = {
             n: editor.read_xref(project_dir(p), o, n) for n in editor.list_xrefs(project_dir(p), o)
             if n in used
         }  # fmt: skip
-        body = mapping_sheet.export_xlsx(editor.mapping_rows(mapping), f"{o} / {s}", lists)
+        row_sets = [
+            {"name": n, "reads": reads[n], "rows": mapping_sheet.row_set_rows(mapping, ov)}
+            for n, ov in overrides.items()
+        ]
+        body = mapping_sheet.export_xlsx(
+            editor.mapping_rows(mapping), f"{o} / {s}", lists, row_sets
+        )
         return Response(
             body,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="mapping-{o}-{s}.xlsx"'},
         )
 
+    def spec_diff(p: str, o: str, s: str, filename: str, content: bytes) -> mapping_sheet.SheetDiff:
+        with open_project(project_dir(p)) as ctx:
+            mapping = current_mapping(ctx, o, s)
+            row_sets = current_row_sets(ctx, o, s)
+        return mapping_sheet.diff_sheet(filename, content, mapping, row_sets)
+
     @app.post("/p/{p}/o/{o}/structures/{s}/spec")
     def spec_upload(p: str, o: str, s: str, file: UploadFile = File(...)) -> RedirectResponse:
         url = f"/p/{p}/o/{o}/structures/{s}"
         content = file.file.read(editor.MAX_UPLOAD + 1)
         try:
-            with open_project(project_dir(p)) as ctx:
-                mapping = current_mapping(ctx, o, s)
-            mapping_sheet.diff_sheet(file.filename or "spec.xlsx", content, mapping)  # fail early
+            spec_diff(p, o, s, file.filename or "spec.xlsx", content)  # fail early
         except EditError as exc:
             return fail(url, "Could not read the mapping file.", exc.errors)
         token = pending.put(targets.Pending(p, o, file.filename or "spec.xlsx", content, "spec", s))
@@ -706,9 +762,7 @@ def create_app(workspace: Path) -> FastAPI:
         url = f"/p/{p}/o/{o}/structures/{s}"
         try:
             item = pending.get(token, p, o)
-            with open_project(project_dir(p)) as ctx:
-                mapping = current_mapping(ctx, o, s)
-            diff = mapping_sheet.diff_sheet(item.filename, item.content, mapping)
+            diff = spec_diff(p, o, s, item.filename, item.content)
         except EditError as exc:
             return fail(url, "Could not read the mapping file.", exc.errors)  # type: ignore[return-value]
         return page(request, "mapping_import.html", project=p, obj=o, structure=s, token=token,
@@ -719,13 +773,13 @@ def create_app(workspace: Path) -> FastAPI:
         url = f"/p/{p}/o/{o}/structures/{s}"
         try:
             item = pending.get(token, p, o)
-            with open_project(project_dir(p)) as ctx:
-                mapping = current_mapping(ctx, o, s)
-            diff = mapping_sheet.diff_sheet(item.filename, item.content, mapping)
+            diff = spec_diff(p, o, s, item.filename, item.content)
             if not diff.changes:
                 pending.drop(token)
                 return ok(url, "Nothing to import - the file matches the mapping.")
-            editor.save_mapping(project_dir(p), o, s, diff.mapping)
+            editor.save_mapping_and_row_sets(
+                project_dir(p), o, s, diff.mapping, diff.row_set_overrides
+            )
         except EditError as exc:
             return fail(url, "Import not applied.", exc.errors)
         pending.drop(token)

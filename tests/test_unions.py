@@ -98,6 +98,152 @@ def test_transform_puts_both_row_sets_in_one_target_table(client, tmp_path):
     ]
 
 
+def test_row_set_grid_shows_every_field_and_stores_only_differences(client, tmp_path):
+    client.post(
+        f"{BASE}/structures/g/rowsets",
+        data={"name": "FLVN01", "source": "lfm1", "join_source": "lfa1", "main0": "LIFNR",
+              "other0": "LIFNR"},
+    )  # fmt: skip
+    page = client.get(f"{BASE}/structures/g").text
+    for field in ("LIFNR", "NAME1", "BP_ROLE", "ORG"):
+        assert (
+            f'name="o{["LIFNR", "NAME1", "BP_ROLE", "ORG"].index(field)}_field" value="{field}"'
+            in page
+        )
+    grid = {
+        "o0_field": "LIFNR", "o0_rule": "MOVE", "o0_src": "LIFNR",
+        "o1_field": "NAME1", "o1_rule": "MOVE", "o1_src": "lfa1.NAME1",  # same as main
+        "o2_field": "BP_ROLE", "o2_rule": "CONSTANT", "o2_a1": "FLVN01",  # differs
+        "o3_field": "ORG", "o3_rule": "MOVE", "o3_src": "EKORG",  # differs
+    }  # fmt: skip
+    r = client.post(f"{BASE}/structures/g/rowsets/FLVN01/rules", data=grid)
+    assert "2 field(s) with their own rule" in r.text
+    union = load_project(tmp_path / "ws" / "p1").objects["vendor"].config.structures[0].unions[0]
+    assert set(union.overrides) == {"BP_ROLE", "ORG"}
+    # putting a rule back to the main one removes the override
+    grid.update({"o2_a1": "FLVN00"})
+    client.post(f"{BASE}/structures/g/rowsets/FLVN01/rules", data=grid)
+    union = load_project(tmp_path / "ws" / "p1").objects["vendor"].config.structures[0].unions[0]
+    assert set(union.overrides) == {"ORG"}
+    assert "own rule" in client.get(f"{BASE}/structures/g").text
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def spec_with_row_set(client):
+    add_vendor_row_set(client)
+    return client.get(f"{BASE}/structures/g/spec.xlsx").content
+
+
+def rewrite(content, sheet, edits):
+    """Change cells of an exported workbook: edits = {(target, header): value}."""
+    import io
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(content))
+    ws = wb[sheet]
+    headers = [c.value for c in ws[1]]
+    for row in ws.iter_rows(min_row=2):
+        target = row[0].value
+        for (t, header), value in edits.items():
+            if t == target:
+                row[headers.index(header)].value = value
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
+def test_excel_spec_has_a_sheet_per_row_set(client):
+    import io
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(spec_with_row_set(client)))
+    assert wb.sheetnames[:3] == ["Mapping", "Rows FLVN01", "How to read"]
+    rows = {r[0]: r for r in wb["Rows FLVN01"].iter_rows(min_row=2, values_only=True)}
+    assert set(rows) == {"LIFNR", "NAME1", "BP_ROLE", "ORG"}
+    headers = [c.value for c in wb["Rows FLVN01"][1]]
+    assert headers[-1] == "Own rule" and "Review" not in headers
+    assert rows["BP_ROLE"][headers.index("Source")] in (None, "")
+    assert rows["BP_ROLE"][headers.index("Setting 1")] == "FLVN01"
+    assert rows["BP_ROLE"][-1] == "own rule" and rows["LIFNR"][-1] == "as main"
+    guide = [r[0] for r in wb["How to read"].iter_rows(values_only=True) if r[0]]
+    assert any("Rows FLVN01: reads lfm1, joined with lfa1 on LIFNR = LIFNR" in g for g in guide)
+
+
+def test_excel_spec_round_trip_has_nothing_to_import(client):
+    content = spec_with_row_set(client)
+    r = client.post(f"{BASE}/structures/g/spec", files={"file": ("s.xlsx", content, XLSX)})
+    assert "nothing to import" in r.text
+
+
+def test_changes_on_a_row_set_sheet_are_imported_as_overrides(client, tmp_path):
+    content = rewrite(
+        spec_with_row_set(client),
+        "Rows FLVN01",
+        {("BP_ROLE", "Setting 1"): "FLVN09", ("ORG", "Source"): "BUKRS"},  # back to the main rule
+    )
+    preview = client.post(f"{BASE}/structures/g/spec", files={"file": ("s.xlsx", content, XLSX)})
+    assert "Rows FLVN01" in preview.text and "FLVN09" in preview.text
+    token = preview.url.path.rsplit("/", 1)[1]
+    assert "2 change(s) imported" in client.post(f"{BASE}/structures/g/spec/{token}").text
+    union = load_project(tmp_path / "ws" / "p1").objects["vendor"].config.structures[0].unions[0]
+    assert union.overrides["BP_ROLE"].value == "FLVN09"
+    assert "ORG" not in union.overrides  # equal to the main rule again, so no override
+
+
+def test_a_main_only_change_does_not_leak_into_row_sets_but_followers_follow(client, tmp_path):
+    content = rewrite(
+        spec_with_row_set(client),
+        "Mapping",
+        {("NAME1", "Source"): "lfa1.NAME1", ("LIFNR", "Rule"): "MOVE"},
+    )
+    # the main mapping gets a different constant; the row set sheet still shows the old main rule
+    content = rewrite(content, "Mapping", {("BP_ROLE", "Setting 1"): "FLVN07"})
+    preview = client.post(f"{BASE}/structures/g/spec", files={"file": ("s.xlsx", content, XLSX)})
+    token = preview.url.path.rsplit("/", 1)[1]
+    client.post(f"{BASE}/structures/g/spec/{token}")
+    cfg = load_project(tmp_path / "ws" / "p1").objects["vendor"]
+    mapping = {f.target_field: f for f in next(iter(cfg.mappings.values())).fields}
+    assert mapping["BP_ROLE"].rule.value == "FLVN07"
+    union = cfg.config.structures[0].unions[0]
+    assert union.overrides["BP_ROLE"].value == "FLVN01"  # its own rule is kept
+    assert "LIFNR" not in union.overrides  # still follows the main rule
+
+
+def save_name_rule(client, sql):
+    client.post(
+        f"{BASE}/structures/g",
+        data={
+            "r0_target": "LIFNR", "r0_rule": "MOVE", "r0_src": "LIFNR", "r0_dtype": "string",
+            "r1_target": "NAME1", "r1_rule": "SQL", "r1_a1": sql, "r1_dtype": "string",
+            "r2_target": "BP_ROLE", "r2_rule": "CONSTANT", "r2_a1": "X", "r2_dtype": "string",
+            "r3_target": "ORG", "r3_rule": "MOVE", "r3_src": "BUKRS", "r3_dtype": "string",
+        },
+    )  # fmt: skip
+
+
+def test_sql_rule_with_an_unknown_table_gives_a_readable_message(client):
+    save_name_rule(client, "select NAME1 from lfa1 where lifnr = LIFNR")
+    client.post(f"{BASE}/run/extract")
+    out = client.post(f"{BASE}/run/transform").text
+    assert "database rejected the generated SQL" in out and "no such table: lfa1" in out
+    assert "stg." in out  # the hint says how to name other sources
+    assert "database rejected" in client.get(f"{BASE}/structures/g/preview").text
+
+
+def test_sql_rule_can_name_other_sources_with_stg(client, tmp_path):
+    save_name_rule(
+        client,
+        'select a."NAME1" from {{ stg.lfa1 }} a where a."LIFNR" = s."LIFNR"',
+    )
+    client.post(f"{BASE}/run/extract")
+    assert "OK - transform" in client.post(f"{BASE}/run/transform").text
+    assert [r[:2] for r in target_rows(tmp_path)] == [("1", "Acme"), ("1", "Acme"), ("2", "Beta")]
+
+
 def test_generated_sql_is_a_union_all(client, tmp_path):
     add_vendor_row_set(client)
     project = load_project(tmp_path / "ws" / "p1")

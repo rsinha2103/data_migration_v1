@@ -250,7 +250,9 @@ def _expression(
         col = _text(refs.col(rule.source_field))
         return f"SUBSTR({col}, {rule.start}, {rule.length})"
     if isinstance(rule, SqlRule):
-        return f"({rule.expression})"
+        # {{ stg.<source> }}, {{ xref.<name> }} and {{ tgt.<structure> }} name the real tables
+        sql = render_sql_template(project, obj, rule.expression, f"field '{target_field}'")
+        return f"({sql})"
     if isinstance(rule, UnmappedRule):
         return "CAST(NULL AS TEXT)"
     if isinstance(rule, XrefRule):

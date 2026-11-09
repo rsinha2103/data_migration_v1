@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% macro rowhtml(r, i) %}
 <tr class="maprow" data-unmapped="{{ '1' if r.rule == 'UNMAPPED' else '0' }}" data-mandatory="{{ '1' if r.mandatory else '0' }}" data-name="{{ r.target|lower }}" data-order="{{ i }}">
  <td><input type="checkbox" class="pick" title="Select this field for the bulk tools"></td>
@@ -19,6 +19,25 @@
  <td><input type="text" name="r{{ i }}_note" value="{{ r.note }}" size="20" placeholder="comment"></td>
  <td><select name="r{{ i }}_review" class="review"><option value="">open</option><option value="approved" {{ 'selected' if r.review == 'approved' }}>approved</option><option value="changes" {{ 'selected' if r.review == 'changes' }}>changes needed</option></select></td>
  <td><input type="checkbox" name="r{{ i }}_delete" title="Delete this field"></td>
+</tr>
+{% endmacro %}
+{% macro ovrow(r, i, listid) %}
+<tr class="ovrow">
+ <td>{{ r.target }}<input type="hidden" name="o{{ i }}_field" value="{{ r.target }}">
+   <div class="hint mapstate">{% if r.rule == 'UNMAPPED' %}<span class="badge {{ 'WARN' if r.mandatory else 'NOTRUN' }}">not mapped</span>{% endif %}{% if r.key %} <span class="badge OK">key</span>{% endif %}</div></td>
+ <td><select name="o{{ i }}_rule" class="rule-type">{% for t in rule_types %}<option value="{{ t }}" {{ 'selected' if t == r.rule }}>{{ '(not mapped)' if t == 'UNMAPPED' else t }}</option>{% endfor %}</select></td>
+ <td>
+  <div class="p-src"><span class="hint"></span><br><input type="text" name="o{{ i }}_src" value="{{ r.src }}" list="{{ listid }}" size="20"></div>
+  <div class="p-a1"><span class="hint"></span><br>{% if r.rule == 'XREF' %}<input type="text" name="o{{ i }}_a1" value="{{ r.a1 }}" list="xrefs" size="16">{% else %}<input type="text" name="o{{ i }}_a1" value="{{ r.a1 }}" size="20">{% endif %}</div>
+  <div class="p-a2"><span class="hint"></span><br>{% if r.rule == 'XREF' %}<select name="o{{ i }}_a2">{% for u in ['error','default','blank'] %}<option {{ 'selected' if u == r.a2 }}>{{ u }}</option>{% endfor %}</select>{% else %}<input type="text" name="o{{ i }}_a2" value="{{ r.a2 }}" size="10">{% endif %}</div>
+  <div class="p-a3"><span class="hint"></span><br><input type="text" name="o{{ i }}_a3" value="{{ r.a3 }}" size="12"></div>
+ </td>
+ <td><input type="text" value="{{ r.desc }}" size="22" disabled></td>
+ <td><select disabled>{% for t in data_types %}<option {{ 'selected' if t == r.dtype }}>{{ t }}</option>{% endfor %}</select></td>
+ <td><input type="text" value="{{ r.length }}" size="4" disabled></td>
+ <td><input type="checkbox" {{ 'checked' if r.mandatory }} disabled></td>
+ <td><input type="checkbox" {{ 'checked' if r.key }} disabled></td>
+ <td>{% if r.own %}<span class="badge WARN">own rule</span>{% else %}<span class="hint">as main</span>{% endif %}</td>
 </tr>
 {% endmacro %}
 {% block body %}
@@ -86,19 +105,12 @@ Mandatory, length, data type and key become checks automatically. Saving rewrite
    <span><b>{{ u.name }}</b> reads <b>{{ u.source }}</b>{% for j in u.joins %}, joined with {{ j.source }} on {% for k in j.keys %}{{ k.main }} = {{ k.other }}{{ ', ' if not loop.last }}{% endfor %}{% endfor %}</span>
    <input type="hidden" name="name" value="{{ u.name }}"><button class="secondary small">Remove row set</button>
   </form>
-  <table style="margin:6px 0"><thead><tr><th>Field</th><th>Own rule in {{ u.name }}</th><th></th></tr></thead><tbody>
-  {% for r in u.overrides %}<tr><td>{{ r.target }}</td><td>{{ r.rule }} {{ r.src }} {{ r.a1 }}{{ ' ' ~ r.a2 if r.a2 }}{{ ' ' ~ r.a3 if r.a3 }}</td>
-   <td><form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/rowsets/override"><input type="hidden" name="row_set" value="{{ u.name }}"><input type="hidden" name="field" value="{{ r.target }}"><input type="hidden" name="remove" value="1"><button class="secondary small">Use the main rule</button></form></td></tr>
-  {% else %}<tr><td colspan="3" class="hint">No own rules yet: every field uses the main rule.</td></tr>{% endfor %}
-  </tbody></table>
-  <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/rowsets/override" class="row">
-   <input type="hidden" name="row_set" value="{{ u.name }}">
-   <select name="field">{% for t in target_names %}<option>{{ t }}</option>{% endfor %}</select>
-   <select name="rule">{% for t in rule_types if t != 'UNMAPPED' %}<option>{{ t }}</option>{% endfor %}</select>
-   <input type="text" name="src" list="cols-{{ u.name }}" size="16" placeholder="source column(s)">
-   <input type="text" name="a1" size="14" placeholder="setting 1 (value / list / separator)">
-   <input type="text" name="a2" size="10" placeholder="setting 2"><input type="text" name="a3" size="10" placeholder="setting 3">
-   <button class="secondary small">Set own rule</button>
+  <form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/rowsets/{{ u.name }}/rules">
+   <div class="hint" style="margin:6px 0">Every field starts with the main rule. Change a rule here to give this row set its own; a rule that equals the main one is not stored ({{ u.own }} field(s) differ now). Description, type, length, mandatory and key (greyed out) belong to the target table, so they are the same for every row set; change them in the main grid below.</div>
+   <div class="scroll"><table class="mapgrid">
+   <thead><tr><th>Target field</th><th>Rule in {{ u.name }}</th><th>Rule settings</th><th>Description</th><th>Type</th><th>Max length</th><th>Mandatory</th><th>Key</th><th>Status</th></tr></thead>
+   <tbody>{% for r in u.rows %}{{ ovrow(r, loop.index0, 'cols-' ~ u.name) }}{% endfor %}</tbody></table></div>
+   <p><button>Save {{ u.name }}</button></p>
   </form>
   <datalist id="cols-{{ u.name }}">{% for c in u.columns %}<option value="{{ c }}">{% endfor %}</datalist>
  </div>

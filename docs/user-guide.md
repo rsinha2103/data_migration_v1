@@ -109,6 +109,8 @@ Use custom SQL instead when the rows need logic a mapping cannot express.
 #### Mapping specification for business review
 **Download Excel** on the mapping page gives one row per target field with the rule in plain words. Reviewers may change Rule, Source, Setting 1-3, Note and Review (open / approved / changes needed) and send the file back; **Import back** shows the differences and applies them after confirmation. The progress box counts approved fields.
 
+With row sets (UNION ALL) the workbook has one sheet per row set, named `Rows <name>`, next to `Mapping`. Each lists every field with the rule it uses in that row set ("own rule" or "as main"); `How to read` says which source and joins the row set uses. Importing compares each sheet with its own rules: a changed rule on a row-set sheet becomes that row set's own rule, a rule set back to the main one removes the override, and a change on `Mapping` is followed by every row-set field that has no own rule. Notes and review state exist on the `Mapping` sheet only. Everything is applied in one step after you confirm.
+
 Every change you make is checked against the whole project before it is kept; if it would break something, the file is left as it was and you are told why. Saving from a form rewrites that YAML file without its comments; the **Files** page lets you edit the raw YAML, SQL and XREF files instead. The working database is a SQLite file in the project folder unless you set the environment variable named in `project.yaml` (for example to a PostgreSQL URL) before starting `dmc ui`. The interface only answers on localhost and runs one operation at a time.
 
 ## 1. Concepts

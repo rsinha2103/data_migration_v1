@@ -7,6 +7,7 @@ from pathlib import Path
 
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.engine.reflection import Inspector
+from sqlalchemy.exc import SQLAlchemyError
 
 from data_migration_concept.config.loader import LoadedObject, LoadedProject
 from data_migration_concept.config.models import XrefRule
@@ -21,6 +22,16 @@ from data_migration_concept.transform.generator import (
     xref_table,
 )
 from data_migration_concept.transform.xref import load_xref
+
+
+def db_error(structure: str, exc: SQLAlchemyError) -> str:
+    """A readable message for SQL the database refused (usually a SQL rule or custom SQL)."""
+    reason = str(getattr(exc, "orig", None) or exc).splitlines()[0]
+    return (
+        f"structure '{structure}': the database rejected the generated SQL: {reason}. In SQL rules "
+        "and custom SQL, name other sources as {{ stg.<source> }} (the real table name is "
+        'stg_<object>_<source>) and qualify columns with an alias, e.g. a."LIFNR" = s."LIFNR".'
+    )
 
 
 @dataclass
@@ -102,9 +113,12 @@ def transform_object(
                     )
             _check_joins(engine, g, inspector)
             _fail_on_unmapped(engine, g)
-            with engine.begin() as conn:
-                for stmt in g.statements:
-                    conn.execute(text(to_dialect(stmt, dialect)))
+            try:
+                with engine.begin() as conn:
+                    for stmt in g.statements:
+                        conn.execute(text(to_dialect(stmt, dialect)))
+            except SQLAlchemyError as exc:
+                raise TransformError(db_error(g.structure, exc)) from exc
             rec.rows_in = sum(_count(engine, t) for t in g.source_tables)
             rec.rows_out = _count(engine, g.target_table)
             rec.message = f"built {g.target_table}"

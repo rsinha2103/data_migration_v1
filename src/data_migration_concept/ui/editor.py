@@ -437,6 +437,80 @@ def set_override(
     apply_changes(project_dir, {path: dump_yaml(data).encode()})
 
 
+def diff_overrides(
+    main: dict[str, dict[str, Any]], rules: list[tuple[str, dict[str, Any]]]
+) -> dict[str, dict[str, Any]]:
+    """The rules that differ from the main mapping's (`main`: target field -> rule)."""
+    from data_migration_concept.config.models import FieldMapping
+
+    overrides: dict[str, dict[str, Any]] = {}
+    for target, rule in rules:
+        if target not in main:
+            continue
+        try:
+            mine = FieldMapping.model_validate({"target_field": target, "rule": rule}).rule
+            theirs = FieldMapping.model_validate(
+                {"target_field": target, "rule": main[target]}
+            ).rule
+        except ValidationError as exc:
+            raise EditError(
+                f"Field '{target}': " + "; ".join(e["msg"] for e in exc.errors())
+            ) from exc
+        if mine != theirs:
+            overrides[target] = rule
+    return overrides
+
+
+def save_mapping_and_row_sets(
+    project_dir: Path,
+    obj: str,
+    structure: str,
+    mapping: dict[str, Any],
+    overrides: dict[str, dict[str, dict[str, Any]]],
+) -> None:
+    """Save the main mapping and the overrides of some row sets in one validated write."""
+    path, data = _object_file(project_dir, obj)
+    st = _structure_entry(data, structure)
+    for name, rules in overrides.items():
+        union = _union_entry(st, name)
+        if rules:
+            union["overrides"] = rules
+        else:
+            union.pop("overrides", None)
+    apply_changes(
+        project_dir,
+        {
+            path: dump_yaml(data).encode(),
+            mapping_file(project_dir, obj, structure): dump_yaml(mapping).encode(),
+        },
+    )
+
+
+def save_row_set_rules(
+    project_dir: Path,
+    obj: str,
+    structure: str,
+    row_set: str,
+    rules: list[tuple[str, dict[str, Any]]],
+) -> int:
+    """Save the grid of a row set: every field with the rule it uses there. A rule equal to the
+    main mapping's is not stored (the field simply follows the main rule); only differences
+    become overrides. Returns how many fields have their own rule."""
+    main = {
+        f["target_field"]: f.get("rule", {})
+        for f in (read_yaml(mapping_file(project_dir, obj, structure)) or {}).get("fields", [])
+    }
+    overrides = diff_overrides(main, rules)
+    path, data = _object_file(project_dir, obj)
+    union = _union_entry(_structure_entry(data, structure), row_set)
+    if overrides:
+        union["overrides"] = overrides
+    else:
+        union.pop("overrides", None)
+    apply_changes(project_dir, {path: dump_yaml(data).encode()})
+    return len(overrides)
+
+
 def remove_structure(project_dir: Path, obj: str, name: str) -> None:
     path, data = _object_file(project_dir, obj)
     removed = [s for s in data["structures"] if s["name"] == name]
