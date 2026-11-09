@@ -14,6 +14,9 @@ dependencies = [
     "jinja2>=3.1",
     "sqlglot>=25.0",
     "openpyxl>=3.1",
+    "fastapi>=0.161.0",
+    "uvicorn[standard]>=0.54.0",
+    "python-multipart>=0.0.32",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +34,7 @@ dev = [
     "types-PyYAML",
     "pre-commit>=3.7",
     "psycopg[binary]>=3.1",
+    "httpx>=0.28.1",
 ]
 
 [build-system]
@@ -49,6 +53,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/data_migration_concept/report/html.py" = ["E501"]  # HTML template
+"src/data_migration_concept/ui/app.py" = ["E501", "B008"]  # FastAPI Form()/File() defaults
+"src/data_migration_concept/proposals/*.py" = ["E501"]  # hand-aligned tables and entries
+"tests/*.py" = ["E501"]  # long literal test data
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

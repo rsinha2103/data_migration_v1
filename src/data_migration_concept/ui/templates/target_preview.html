@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<h2 style="margin-top:0">{{ 'Update ' ~ item.structure ~ ' from a template' if item.mode == 'merge' else 'Check what was found' }}</h2>
+<p class="sub">File: <b>{{ item.filename }}</b>{% if parsed.note %} &middot; {{ parsed.note }}{% endif %}</p>
+
+<form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/template/{{ token }}">
+
+{% if parsed.kind == 'table' %}
+<div class="card">
+  <b>Which column is which?</b> <span class="hint">We guessed from the headings; change anything that is wrong, then press "Update preview".</span>
+  {% if parsed.sheets|length > 1 %}
+  <div class="row"><div><label>Excel sheet</label><select name="sheet">{% for s in parsed.sheets %}<option {{ 'selected' if s == parsed.sheet }}>{{ s }}</option>{% endfor %}</select></div></div>
+  {% endif %}
+  <div class="row">
+  {% for role in roles_all %}
+   <div><label>{{ role_labels[role] }}</label>
+    <select name="role_{{ role }}"><option value="">(none)</option>
+     {% for h in parsed.table.headers %}<option value="{{ loop.index0 }}" {{ 'selected' if parsed.roles.get(role) == loop.index0 }}>{{ h }}</option>{% endfor %}
+    </select></div>
+  {% endfor %}
+  {% if item.mode == 'create' %}<div><label>Structure name <span class="hint">(if no structure column)</span></label><input type="text" name="structure_name" value="{{ structure_name }}" size="16"></div>{% endif %}
+  </div>
+  <p><button type="submit" formmethod="get" formaction="/p/{{ project }}/o/{{ obj }}/structures/template/{{ token }}" class="secondary">Update preview</button></p>
+  <div class="scroll"><table><tr>{% for h in parsed.table.headers %}<th>{{ h }}</th>{% endfor %}</tr>
+  {% for r in parsed.table.rows[:8] %}<tr>{% for c in r %}<td>{{ c }}</td>{% endfor %}</tr>{% endfor %}</table></div>
+  <p class="hint">{{ parsed.table.rows|length }} row(s). Mandatory: X, Y, yes, true or 1. Types such as CHAR/Text become text, INT numbers, DEC/CURR/QUAN decimals, DATS dates.</p>
+</div>
+{% endif %}
+
+{% if not rows %}
+<div class="flash error"><b>No structure found yet.</b> Choose the field-name column above and press "Update preview".</div>
+{% elif item.mode == 'merge' %}
+<h3>Use which structure of the file?</h3>
+<p class="hint">Fields are added (unmapped); description, type, length, mandatory and key are updated. Your mapping rules stay as they are, and fields that are not in the template are kept.</p>
+<table><tr><th></th><th>Structure in the file</th><th class="num">Fields</th><th class="num">Mandatory</th><th>First fields</th></tr>
+{% for r in rows %}<tr><td><input type="radio" name="pick" value="{{ r.i }}" {{ 'checked' if r.match or (loop.first and not rows|selectattr('match')|list) }}></td>
+<td>{{ r.s.name }}{% if r.s.label != r.s.name %}<br><span class="hint">{{ r.s.label }}</span>{% endif %}</td>
+<td class="num">{{ r.s.fields|length }}</td><td class="num">{{ r.s.fields|selectattr('mandatory')|list|length }}</td>
+<td class="mono">{{ r.s.fields[:8]|map(attribute='target_field')|join(', ') }}{{ ' ...' if r.s.fields|length > 8 }}</td></tr>{% endfor %}</table>
+<p><button>Update the structure</button></p>
+{% else %}
+<h3>{{ rows|length }} structure(s) found</h3>
+<p class="hint">Tick the ones to create. Structures the file marks as mandatory are ticked for you. Each needs a name, a target table name, and the source it will be filled from (you can change the source later).</p>
+<div class="scroll"><table><tr><th></th><th>Structure name</th><th>Target table</th><th>Filled from source</th><th class="num">Fields</th><th class="num">Mandatory</th><th class="num">Key</th><th>First fields</th></tr>
+{% for r in rows %}<tr>
+<td><input type="checkbox" name="inc_{{ r.i }}" {{ 'checked' if r.checked }}></td>
+<td><input type="text" name="name_{{ r.i }}" value="{{ r.s.name }}" size="22">{% if r.s.label != r.s.name %}<br><span class="hint">{{ r.s.label }}</span>{% endif %}
+ {% if r.clash %}<br><span class="badge WARN">name already used</span>{% endif %}{% if r.s.required %}<br><span class="badge OK">mandatory structure</span>{% endif %}</td>
+<td><input type="text" name="table_{{ r.i }}" value="{{ r.table }}" size="20"></td>
+<td><select name="source_{{ r.i }}">{% for s in sources %}<option>{{ s.name }}</option>{% endfor %}</select></td>
+<td class="num">{{ r.s.fields|length }}</td><td class="num">{{ r.s.fields|selectattr('mandatory')|list|length }}</td><td class="num">{{ r.s.fields|selectattr('key')|list|length }}</td>
+<td class="mono">{{ r.s.fields[:6]|map(attribute='target_field')|join(', ') }}{{ ' ...' if r.s.fields|length > 6 }}</td></tr>{% endfor %}
+</table></div>
+<p><button>Create the selected structures</button> <a class="btn secondary" href="/p/{{ project }}/o/{{ obj }}/structures">Cancel</a></p>
+{% endif %}
+</form>
+{% endblock %}

@@ -41,8 +41,12 @@ def _stream(ctx: CheckContext, sql: str) -> Iterator[Any]:
 class MandatoryCheck(Check):
     check_type = "MANDATORY"
 
-    def __init__(self, structure: str, field: str, severity: Severity = "error") -> None:
+    def __init__(
+        self, structure: str, field: str, severity: Severity = "error", *, unmapped: bool = False
+    ) -> None:
         super().__init__(f"mandatory.{structure}.{field}", structure, severity, field)
+        if unmapped:
+            self.hint = "the field is mandatory but not mapped yet"
 
     def failures(self, ctx: CheckContext) -> Iterator[Failure]:
         assert self.field is not None

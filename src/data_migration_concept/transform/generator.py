@@ -23,6 +23,7 @@ from data_migration_concept.config.models import (
     SqlRule,
     StructureConfig,
     SubstringRule,
+    UnmappedRule,
     XrefRule,
 )
 from data_migration_concept.transform.errors import TransformError
@@ -145,6 +146,8 @@ def _expression(
         return f"SUBSTR({col}, {rule.start}, {rule.length})"
     if isinstance(rule, SqlRule):
         return f"({rule.expression})"
+    if isinstance(rule, UnmappedRule):
+        return "CAST(NULL AS TEXT)"
     if isinstance(rule, XrefRule):
         alias = f"x{len(joins) + 1}"
         table = xref_table(project, obj, rule.xref)

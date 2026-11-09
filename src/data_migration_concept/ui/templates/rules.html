@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% macro field(key, label, kind) %}
+{% set base = kind.split(':')[0] %}
+<div><label>{{ label }}</label>
+{% if base == 'textarea' %}<textarea name="{{ key }}" rows="4" class="code"></textarea>
+{% elif base == 'bool' %}<label class="inline"><input type="checkbox" name="{{ key }}"> yes</label>
+{% elif base == 'select' %}<select name="{{ key }}">{% for o in kind.split(':')[1].split('|') %}<option>{{ o }}</option>{% endfor %}</select>
+{% else %}<input type="text" name="{{ key }}" size="30">{% endif %}</div>
+{% endmacro %}
+{% block body %}
+{% include "_object_head.html" %}
+{% if kind == 'checks' %}
+<div class="explain"><b>Checks validate the target data - and only the checks you have confirmed ever run.</b> Nothing is checked automatically: confirm the rules your target structure implies below, accept suggestions on the <a href="/p/{{ project }}/o/{{ obj }}/proposals">Proposals</a> tab, or add your own. An <b>error</b> check blocks the load; a <b>warning</b> only reports. With nothing confirmed, the Check step runs nothing and the load is not held back.</div>
+
+<form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/checks/from-mapping">
+  <b>Rules from your target structure</b> <span class="hint">- off until you switch them on</span>
+  <table style="width:auto;margin-top:6px"><tr><th>Rule</th><th>Applies to</th><th>Run it as</th></tr>
+  {% for key, label, what in [('mandatory','Mandatory fields must be filled','fields flagged mandatory'),('length','Values must fit the length','fields with a length'),('data_type','Values must match the data type','number, decimal, date and boolean fields'),('key','Key fields must be unique','fields flagged as key (checked together)')] %}
+  <tr><td>{{ label }}</td><td>{{ rule_counts[key] }} {{ what }}</td>
+  <td><select name="{{ key }}">{% for v, t in [('off','off - not checked'),('warn','warning - report only'),('error','error - blocks the load')] %}<option value="{{ v }}" {{ 'selected' if from_mapping.get(key, 'off') == v }}>{{ t }}</option>{% endfor %}</select></td></tr>
+  {% endfor %}</table>
+  <p><button class="secondary">Save</button></p>
+</form>
+
+<form method="post" action="/p/{{ project }}/o/{{ obj }}/run/check" data-busy class="row" style="margin:8px 0">
+  <button>Run checks</button><span class="muted">Runs only the confirmed checks below and above.</span>
+</form>
+{% else %}
+<form method="post" action="/p/{{ project }}/o/{{ obj }}/run/recon" data-busy class="row" style="margin:8px 0">
+  <button>Run reconciliation</button><span class="muted">Needs the target tables (run Transform first).</span>
+</form>
+<div class="explain"><b>Reconciliation</b> proves nothing was lost or altered between the source and the target: row counts, keys, control totals and field values. Rows you deliberately do not migrate can be excluded with a SQL condition.</div>
+{% endif %}
+
+<p class="hint">Suggestions are waiting on the <a href="/p/{{ project }}/o/{{ obj }}/proposals">Proposals</a> tab; add them there with one click, or write your own below.</p>
+<table><tr><th>Name</th><th>Type</th><th>Structure</th><th>Severity</th><th>Settings</th><th></th></tr>
+{% for e in entries %}<tr><td>{{ e.name }}{% if e.description %}<br><span class="hint">{{ e.description }}</span>{% endif %}</td><td>{{ e.type }}</td><td>{{ e.structure }}</td>
+<td><span class="badge {{ 'WARN' if e.severity == 'warn' else 'OK' }}">{{ e.severity or 'error' }}</span></td>
+<td class="mono">{% for k, v in e.items() if k not in ('name','type','structure','severity','description') %}{{ k }}={{ v }}; {% endfor %}</td>
+<td><form method="post" action="/p/{{ project }}/o/{{ obj }}/{{ kind }}/delete" data-confirm="Delete {{ e.name }}?"><input type="hidden" name="name" value="{{ e.name }}"><button class="danger small">Delete</button></form></td></tr>
+{% else %}<tr><td colspan="6" class="muted">None yet.</td></tr>{% endfor %}</table>
+
+<h2>Add</h2>
+<form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/{{ kind }}/add">
+ <div class="row">
+  <div><label>Type</label><select name="type" data-switch>{% for t in specs %}<option>{{ t }}</option>{% endfor %}</select></div>
+  <div><label>Name</label><input type="text" name="name" placeholder="partner_unique"></div>
+  <div><label>Structure</label><select name="structure">{% for s in structures %}<option>{{ s }}</option>{% endfor %}</select></div>
+  <div><label>If it fails</label><select name="severity"><option value="error">block the load (error)</option><option value="warn">only warn</option></select></div>
+ </div>
+ {% for t, spec in specs.items() %}
+ <div class="row" data-for="{{ t }}">{% for key, label, k in spec %}{{ field(key, label, k) }}{% endfor %}</div>
+ {% endfor %}
+ {% if common %}<div class="row">{% for key, label, k in common %}{{ field(key, label, k) }}{% endfor %}</div>{% endif %}
+ <div><label>Note <span class="hint">(optional)</span></label><input type="text" name="description" size="60"></div>
+ <p><button>Add</button></p>
+</form>
+{% endblock %}

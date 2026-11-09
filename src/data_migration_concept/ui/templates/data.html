@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="explain">The tables each step has built, so you can look at your data at every stage: <b>staging</b> (the source as read), <b>XREF</b> lookups and <b>target</b> tables. Every row has <code>_dmc_row_no</code>, its row number in the source.</div>
+{% if tables %}
+<table><tr><th>Stage</th><th>Table</th>{% if counts %}<th class="num">Rows</th>{% endif %}</tr>
+{% for t in tables %}<tr><td>{{ t.stage }}</td><td><a href="/p/{{ project }}/o/{{ obj }}/data/{{ t.table }}">{{ t.table }}</a></td>{% if counts %}<td class="num">{{ counts[t.table] }}</td>{% endif %}</tr>{% endfor %}
+</table>
+{% else %}<p class="muted">Nothing yet - run Extract first.</p>{% endif %}
+
+{% if preview %}
+<h2>{{ preview.table }} <span class="muted">({{ preview.total }} rows)</span></h2>
+<form method="get" class="row"><div><label>Filter <span class="hint">(text in any column)</span></label><input type="text" name="q" value="{{ preview.needle }}"></div><button class="secondary">Filter</button></form>
+<div class="scroll"><table><tr>{% for c in preview.columns %}<th>{{ c }}</th>{% endfor %}</tr>
+{% for r in preview.rows %}<tr>{% for v in r %}<td>{{ '' if v is none else v }}</td>{% endfor %}</tr>{% else %}<tr><td colspan="{{ preview.columns|length }}" class="muted">No rows.</td></tr>{% endfor %}
+</table></div>
+<p>Page {{ preview.page }} of {{ preview.pages }}
+{% if preview.page > 1 %}<a href="?page={{ preview.page - 1 }}&q={{ preview.needle|urlencode }}">&laquo; previous</a>{% endif %}
+{% if preview.page < preview.pages %}<a href="?page={{ preview.page + 1 }}&q={{ preview.needle|urlencode }}">next &raquo;</a>{% endif %}</p>
+{% endif %}
+{% endblock %}

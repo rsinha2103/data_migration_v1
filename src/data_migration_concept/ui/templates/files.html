@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="crumbs"><a href="/">Projects</a> / <a href="/p/{{ project }}">{{ project }}</a> / Files</div>
+<h1>Project files</h1>
+<p class="sub">The advanced view: edit the YAML, SQL and XREF files directly. A save that would make the project invalid is refused and the file is left as it was.</p>
+<div class="row" style="align-items:start">
+ <div class="card" style="min-width:340px"><b>Files</b>
+  <ul style="padding-left:18px;margin:6px 0">{% for f in files %}<li><a href="?path={{ f|urlencode }}">{{ f }}</a></li>{% endfor %}</ul></div>
+ <div style="flex:1;min-width:420px">
+ {% if rel %}
+  <form method="post" action="/p/{{ project }}/files">
+   <b class="mono">{{ rel }}</b>
+   <input type="hidden" name="rel" value="{{ rel }}">
+   <textarea name="content" rows="28" class="code" spellcheck="false">{{ content }}</textarea>
+   <p><button>Save</button></p>
+  </form>
+ {% else %}<p class="muted">Choose a file on the left.</p>{% endif %}
+ </div>
+</div>
+{% endblock %}

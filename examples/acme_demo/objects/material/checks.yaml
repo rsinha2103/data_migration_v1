@@ -1,3 +1,9 @@
+# The target structure's own rules are confirmed here; nothing is checked unless listed.
+from_mapping:
+  mandatory: error
+  length: error
+  data_type: error
+  key: error
 checks:
   - name: material_unique
     structure: basic

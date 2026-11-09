@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="explain">This is the exact SQL the Transform step runs for each structure, generated from your mapping. Nothing is hidden: you can review it, or copy it to run elsewhere. Custom SQL and SQL rules appear as you wrote them.</div>
+{% for i in items %}
+<h2>{{ i.structure }} &rarr; {{ i.target }}</h2>
+<pre>{{ i.sql }}</pre>
+{% endfor %}
+{% endblock %}

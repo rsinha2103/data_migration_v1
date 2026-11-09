@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Projects</h1>
+<p class="sub">Workspace folder: <code>{{ workspace }}</code>. New projects are created here.</p>
+
+{% if projects %}
+<div class="grid">
+{% for p in projects %}
+  <div class="card">
+    <h3><a href="/p/{{ p.name }}">{{ p.name }}</a></h3>
+    {% if p.error %}<span class="badge FAILED">Has problems</span> <span class="muted">{{ p.error }}</span>
+    {% else %}<div>{{ p.title }}</div><div class="muted">{{ p.objects }} object(s)</div>{% endif %}
+    <div class="muted mono" style="margin-top:6px">{{ p.path }}</div>
+  </div>
+{% endfor %}
+</div>
+{% else %}
+<div class="explain"><b>Start here.</b> Try the demo project to see the whole flow with invented data, or create your own project and upload a file.
+ New to this? Read <a href="/how-it-works">How it works</a> first.</div>
+{% endif %}
+
+<h2>Try the demo</h2>
+<form class="card row" method="post" action="/projects/demo">
+  <div><label>Folder name</label><input type="text" name="name" value="acme_demo"></div>
+  <label class="inline"><input type="checkbox" name="defects"> Include seeded data problems (checks will block the load)</label>
+  <button>Create demo project</button>
+</form>
+
+<h2>Create your own project</h2>
+<form class="card row" method="post" action="/projects/create">
+  <div><label>Folder name</label><input type="text" name="name" placeholder="my_migration"></div>
+  <div><label>Title <span class="hint">(optional)</span></label><input type="text" name="title" size="36"></div>
+  <button>Create project</button>
+</form>
+
+<h2>Open a project folder you already have</h2>
+<form class="card row" method="post" action="/projects/add">
+  <div><label>Full path to the folder that contains project.yaml</label><input type="text" name="folder" size="60"></div>
+  <button class="secondary">Add to the list</button>
+</form>
+{% endblock %}

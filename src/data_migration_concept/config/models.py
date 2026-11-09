@@ -101,8 +101,22 @@ class SqlRule(_Base):
     expression: str
 
 
+class UnmappedRule(_Base):
+    """The target field exists (it came from the target structure) but has no source yet.
+    It stays in the target table and the load file, empty."""
+
+    type: Literal["UNMAPPED"]
+
+
 Rule = Annotated[
-    MoveRule | ConstantRule | XrefRule | ConcatRule | SubstringRule | NotMigratedRule | SqlRule,
+    MoveRule
+    | ConstantRule
+    | XrefRule
+    | ConcatRule
+    | SubstringRule
+    | NotMigratedRule
+    | SqlRule
+    | UnmappedRule,
     Field(discriminator="type"),
 ]
 
@@ -122,6 +136,7 @@ class FieldMapping(_Base):
     data_type: Literal["string", "integer", "decimal", "date", "boolean"] = "string"
     length: Annotated[int, Field(gt=0)] | None = None
     mandatory: bool = False
+    key: bool = Field(default=False, description="Part of the structure's key (must be unique).")
     rule: Rule
 
 
@@ -243,9 +258,16 @@ CheckConfig = Annotated[
 
 
 class ChecksFile(_Base):
-    """Content of `checks.yaml`. Mandatory, length and data-type checks are derived
-    automatically from the mapping and need no entry here."""
+    """Content of `checks.yaml`. Nothing is checked unless it is listed here: either an explicit
+    check, or a kind of rule the target structure implies, confirmed under `from_mapping`."""
 
+    from_mapping: dict[
+        Literal["mandatory", "length", "data_type", "key"], Literal["error", "warn"]
+    ] = Field(
+        default_factory=dict,
+        description="Rules the target structure implies (mandatory flags, lengths, data types, "
+        "keys) that the user has confirmed, with their severity.",
+    )
     checks: list[CheckConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -435,7 +457,7 @@ class ObjectConfig(_Base):
     name: Identifier
     description: str = ""
     sources: Annotated[list[Source], Field(min_length=1)]
-    structures: Annotated[list[StructureConfig], Field(min_length=1)]
+    structures: list[StructureConfig] = Field(default_factory=list)
     loads: list[Load] = Field(default_factory=list)
 
     @model_validator(mode="after")

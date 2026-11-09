@@ -101,6 +101,7 @@ class CheckContext:
 class Check(ABC):
     check_type: str
     unit = "row(s)"  # what one Failure represents, for the summary message
+    hint = ""  # an extra explanation appended to the summary message
 
     def __init__(
         self,
@@ -113,6 +114,21 @@ class Check(ABC):
         self.structure = structure
         self.severity: Severity = severity
         self.field = field
+
+    def _summary(self, result: CheckResult) -> str:
+        """e.g. `6 row(s) failed (e.g. Germany, XX) - the field is not mapped yet`."""
+        examples: list[str] = []
+        for failure in result.failures[:200]:
+            if failure.value and failure.value not in examples:
+                examples.append(failure.value)
+            if len(examples) == 3:
+                break
+        text = f"{result.failed_count} {self.unit} failed"
+        if examples:
+            text += f" (e.g. {', '.join(examples)})"
+        if self.hint:
+            text += f" - {self.hint}"
+        return text
 
     def count_rows(self, ctx: CheckContext) -> int:
         """Rows examined; reported as checked_count."""
@@ -145,5 +161,5 @@ class Check(ABC):
             return result
         if result.failed_count:
             result.status = CheckStatus.FAIL
-            result.message = f"{result.failed_count} {self.unit} failed"
+            result.message = self._summary(result)
         return result

@@ -1,0 +1,10 @@
+<div class="crumbs"><a href="/">Projects</a> / <a href="/p/{{ project }}">{{ project }}</a> / {{ obj }}</div>
+<h1>{{ obj }}</h1>
+<nav class="tabs">
+{% for key, label, path in [
+  ('flow', 'Flow', ''), ('proposals', 'Proposals', '/proposals'), ('sources', '1 Sources', '/sources'), ('structures', '2 Structures & mapping', '/structures'),
+  ('xref', '3 XREF lists', '/xref'), ('checks', '4 Checks', '/checks'), ('loads', '5 Loads', '/loads'),
+  ('recon', '6 Reconciliation', '/recon'), ('data', 'Data', '/data'), ('results', 'Results', '/results'), ('sql', 'SQL', '/sql')] %}
+  <a href="/p/{{ project }}/o/{{ obj }}{{ path }}" class="{{ 'active' if tab == key }}">{{ label }}</a>
+{% endfor %}
+</nav>

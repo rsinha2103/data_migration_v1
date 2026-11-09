@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="explain">A <b>source</b> is where legacy data comes from. Files are copied into the project's <code>data</code> folder. Values are read as text so keys like <code>0000100001</code> keep their zeros.</div>
+
+<table><tr><th>Name</th><th>Kind</th><th>Where</th><th>Options</th><th></th></tr>
+{% for s in sources %}<tr><td>{{ s.name }}</td><td>{{ s.kind }}</td>
+<td>{{ s.path if s.kind == 'file' else (s.connection ~ ': ' ~ (s.table or s.query)) }}</td>
+<td>{% if s.kind == 'file' %}{{ s.format }}{% if s.format == 'csv' %}, delimiter <code>{{ s.delimiter }}</code>, {{ s.encoding }}{% endif %}{% if s.sheet %}, sheet {{ s.sheet }}{% endif %}{% endif %}</td>
+<td><form method="post" action="/p/{{ project }}/o/{{ obj }}/sources/remove" data-confirm="Remove source {{ s.name }}?"><input type="hidden" name="name" value="{{ s.name }}"><button class="danger small">Remove</button></form></td></tr>{% endfor %}
+</table>
+
+<h2>Add a file</h2>
+<form class="card row" method="post" action="/p/{{ project }}/o/{{ obj }}/sources/upload" enctype="multipart/form-data">
+  <div><label>File <span class="hint">(.csv, .xlsx, .parquet)</span></label><input type="file" name="file" required></div>
+  <div><label>Excel sheet <span class="hint">(optional)</span></label><input type="text" name="sheet" size="14"></div>
+  <button>Upload</button>
+</form>
+
+<h2>Add a database source</h2>
+<form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/sources/sql">
+  <div class="row">
+   <div><label>Name</label><input type="text" name="name" placeholder="vendors"></div>
+   <div><label>Connection</label><select name="connection">{% for c in connections %}<option>{{ c }}</option>{% endfor %}</select></div>
+   <div><label>Table</label><input type="text" name="table" placeholder="LFA1"></div>
+   <div><label>or SQL query</label><input type="text" name="query" size="40"></div>
+   <button>Add</button>
+  </div>
+  <p class="hint">Connections are defined in <a href="/p/{{ project }}/files?path=project.yaml">project.yaml</a>; the database URL itself is read from an environment variable, never stored.</p>
+</form>
+{% endblock %}

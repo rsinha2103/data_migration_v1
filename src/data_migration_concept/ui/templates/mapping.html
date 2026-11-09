@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% macro rowhtml(r, i) %}
+<tr class="maprow" data-unmapped="{{ '1' if r.rule == 'UNMAPPED' else '0' }}" data-mandatory="{{ '1' if r.mandatory else '0' }}" data-name="{{ r.target|lower }}">
+ <td><input type="text" name="r{{ i }}_target" value="{{ r.target }}" size="16">
+   <div class="hint mapstate">{% if r.rule == 'UNMAPPED' %}<span class="badge {{ 'WARN' if r.mandatory else 'NOTRUN' }}">not mapped</span>{% endif %}{% if r.key %} <span class="badge OK">key</span>{% endif %}</div></td>
+ <td><select name="r{{ i }}_rule" class="rule-type">{% for t in rule_types %}<option value="{{ t }}" {{ 'selected' if t == r.rule }}>{{ '(not mapped)' if t == 'UNMAPPED' else t }}</option>{% endfor %}</select></td>
+ <td>
+  <div class="p-src"><span class="hint"></span><br><input type="text" name="r{{ i }}_src" value="{{ r.src }}" list="cols" size="20"></div>
+  <div class="p-a1"><span class="hint"></span><br>{% if r.rule == 'XREF' %}<input type="text" name="r{{ i }}_a1" value="{{ r.a1 }}" list="xrefs" size="16">{% else %}<input type="text" name="r{{ i }}_a1" value="{{ r.a1 }}" size="20">{% endif %}</div>
+  <div class="p-a2"><span class="hint"></span><br>{% if r.rule == 'XREF' %}<select name="r{{ i }}_a2">{% for u in ['error','default','blank'] %}<option {{ 'selected' if u == r.a2 }}>{{ u }}</option>{% endfor %}</select>{% else %}<input type="text" name="r{{ i }}_a2" value="{{ r.a2 }}" size="10">{% endif %}</div>
+  <div class="p-a3"><span class="hint"></span><br><input type="text" name="r{{ i }}_a3" value="{{ r.a3 }}" size="12"></div>
+ </td>
+ <td><input type="text" name="r{{ i }}_desc" value="{{ r.desc }}" size="22"></td>
+ <td><select name="r{{ i }}_dtype">{% for t in data_types %}<option {{ 'selected' if t == r.dtype }}>{{ t }}</option>{% endfor %}</select></td>
+ <td><input type="text" name="r{{ i }}_length" value="{{ r.length }}" size="4"></td>
+ <td><input type="checkbox" name="r{{ i }}_mandatory" {{ 'checked' if r.mandatory }}></td>
+ <td><input type="checkbox" name="r{{ i }}_key" {{ 'checked' if r.key }}></td>
+ <td><input type="checkbox" name="r{{ i }}_delete" title="Delete this field"></td>
+</tr>
+{% endmacro %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="crumbs"><a href="/p/{{ project }}/o/{{ obj }}/structures">&laquo; all structures</a></div>
+<h2 style="margin-top:0">{{ structure.name }} <span class="muted">(table tgt_{{ structure.target_table }})</span></h2>
+
+{% if not structure.mapping %}
+<div class="explain">This structure is built by custom SQL (<code>{{ structure.custom_sql }}</code>), not a mapping table. Edit the SQL in the <a href="/p/{{ project }}/files?path=objects/{{ obj }}/{{ structure.custom_sql }}">file editor</a>.</div>
+{% else %}
+
+<div class="grid">
+ <div class="card"><b>Progress</b><br>
+  <span style="font-size:20px">{{ summary.total - summary.unmapped }} of {{ summary.total }}</span> target fields mapped<br>
+  {% if summary.mandatory_unmapped %}<span class="badge WARN">{{ summary.mandatory_unmapped }} mandatory field(s) not mapped</span>{% else %}<span class="badge OK">all mandatory fields mapped</span>{% endif %}
+ </div>
+ <form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/source">
+  <b>Filled from source</b><br><select name="source">{% for s in sources %}<option {{ 'selected' if s.name == structure.source }}>{{ s.name }}</option>{% endfor %}</select>
+  <button class="secondary small">Change</button><div class="hint">{{ columns|length }} source column(s) available</div>
+ </form>
+ <form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}/template" enctype="multipart/form-data">
+  <b>Update the target structure</b> <span class="hint">from a newer template (Cockpit .xml / .zip, Excel, CSV)</span><br>
+  <input type="file" name="file" accept=".xml,.zip,.xlsx,.csv,.txt,.tsv" required> <button class="secondary small">Read</button>
+ </form>
+</div>
+
+<div class="explain">One row per <b>target field</b>; the field list comes from the target structure. Say how each is filled:
+<b>(not mapped)</b> stays empty &middot; <b>MOVE</b> copy a source column &middot; <b>CONSTANT</b> fixed value &middot; <b>XREF</b> translate through a list (<a href="/p/{{ project }}/o/{{ obj }}/xref">XREF lists</a>) &middot;
+<b>CONCAT</b> join columns &middot; <b>SUBSTRING</b> part of a column &middot; <b>NOT_MIGRATED</b> left out of the target table &middot; <b>SQL</b> your own expression.
+Mandatory, length, data type and key become checks automatically. Saving rewrites the mapping file without comments.</div>
+
+<datalist id="cols">{% for c in columns %}<option value="{{ c }}">{% endfor %}</datalist>
+<datalist id="xrefs">{% for x in xrefs %}<option value="{{ x }}">{% endfor %}</datalist>
+
+<form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/{{ structure.name }}">
+<div class="row" style="margin-bottom:8px">
+ <div><label>Find a field</label><input type="text" id="map-search" placeholder="type part of a name"></div>
+ <label class="inline"><input type="checkbox" id="only-unmapped"> only not mapped</label>
+ <label class="inline"><input type="checkbox" id="only-mandatory"> only mandatory</label>
+</div>
+<div class="scroll"><table class="mapgrid">
+<thead><tr><th>Target field</th><th>Rule</th><th>Rule settings</th><th>Description</th><th>Type</th><th>Max length</th><th>Mandatory</th><th>Key</th><th>Delete</th></tr></thead>
+<tbody id="maprows">
+{% for r in rows %}{{ rowhtml(r, loop.index0) }}{% endfor %}
+</tbody></table></div>
+<template id="row-template">{{ rowhtml({'target':'','desc':'','dtype':'string','length':'','mandatory':False,'key':False,'rule':'UNMAPPED','src':'','a1':'','a2':'','a3':''}, '__i__') }}</template>
+<p class="row">
+ <button type="button" class="secondary" id="add-row">+ Add a field</button>
+ <button name="action" value="auto_map" class="secondary" title="Not-mapped fields whose name matches a source column are set to MOVE">Auto-map by matching names</button>
+ <button name="action" value="save">Save mapping</button>
+</p>
+</form>
+{% if not columns %}<p class="hint">Source columns could not be listed (a database source needs an Extract first), so the column box is free text.</p>{% endif %}
+{% endif %}
+{% endblock %}

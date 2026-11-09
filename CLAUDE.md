@@ -17,6 +17,8 @@ Open source data migration workbench: extract → transform → validate → loa
 - `checks/` check framework and built-ins; `recon/` reconciliation (reuses the check types)
 - `load/` writers and gated load; `profile/` column profiling; `report/` Excel/HTML/JSON
 - `demo.py` and `cli.py` (Typer app)
+- `proposals/` pure engine that suggests mappings, value lists, checks, reconciliations and loads (never applies them); `catalog.py` and `countries.py` hold the built-in library
+- `ui/` local web app (FastAPI + Jinja templates + a little vanilla JS; no JS build step): `app.py` routes, `workspace.py` project folders and safe opening, `pipeline.py` step running and flow state, `editor.py` validated file edits (every change is rolled back if it adds a project error)
 
 Tests in `tests/`; fixture projects are `examples/acme_supplier` (small, used by most tests) and `examples/acme_demo` (the demo). Fictitious data only.
 

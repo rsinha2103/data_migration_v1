@@ -17,6 +17,57 @@ uv run dmc demo --dir dmc_demo_bad --defects   # seeded problems: checks block t
 
 Open `dmc_demo/reports/supplier_report.html` to see what a report looks like. The demo project lives in `examples/acme_demo`; all names and numbers in it are invented.
 
+## Using the web interface
+
+```bash
+uv run dmc ui            # opens http://localhost:8765
+```
+
+Everything in this guide can be done on screen. The pages of an object follow the order of the work:
+
+| Tab | What you do there |
+|---|---|
+| Proposals | **Ready-made suggestions, never applied for you.** Field mappings, value lists (XREF), checks, reconciliations and load destinations, each with the reason and exactly what would be written. Tick what you want and press Apply selected; Dismiss hides what you do not want. See below. |
+| Flow | See the seven steps with status, row counts and "out of date" warnings; run one step or everything; open the report. |
+| 1 Sources | Upload CSV / Excel / Parquet files (delimiter and encoding are detected) or add a database table or query. |
+| 2 Structures & mapping | **Step 1, define the target structure** - the fields the target system expects (name, description, type, length, mandatory, key). Upload a template, paste a field list, or copy the source columns. **Step 2, map it:** for each target field say how it is filled - move a column, fixed value, XREF translation, concat, substring, not migrated, or SQL. A field you have not mapped yet stays in the result, empty. Mandatory, length, type and key become checks automatically. |
+| 3 XREF lists | Create or paste value lists. When data has been extracted, values that have no entry yet are listed so you can add them in one click. |
+| 4 Checks | Add uniqueness, allowed values, references, null rate, pattern, range, outlier and SQL checks, as errors (block the load) or warnings. |
+| 5 Loads | Choose where the result goes: a file in `output/` or a database table. |
+| 6 Reconciliation | Add count, key, total and field comparisons between source and target. |
+| Data | Look at the staging, XREF and target tables at any point, with search and paging. |
+| Results | Check and reconciliation results, rejected rows with their source row number, and the column profile. |
+| SQL | The exact SQL generated for each structure. |
+
+### Proposals
+
+Once an object has a target structure, the **Proposals** tab already holds suggestions. They are only ever *shown*: nothing is written to the project until you tick items and press **Apply selected**. Looking at the tab, or dismissing a suggestion, never changes your mappings, lists, checks or loads.
+
+Where they come from:
+- **Your target structure:** mappings by matching name (a source column called like the target field), a count reconciliation per structure, key and field comparisons when keys are marked, control totals for numeric fields, and a default CSV load destination.
+- **A built-in library:** value lists for country (ISO 3166, with alpha-3 codes, English names and spellings such as UK), currency (ISO 4217), unit of measure and language, offered when a mapped field looks like one; plus format checks by field name (country and currency codes, e-mail, IBAN, phone numbers, company code). Library lists are a starting point: unit and language targets in particular must be checked against your target system.
+- **Your own data** (after Extract): legacy columns recognised by name variants (such as `LAND1` for `COUNTRY`) or by their values (a column that is almost all country codes), the values actually used for a value list (values that are not recognised are left out on purpose, so the transform stops and names them), allowed values for fields with few distinct values, a fixed layout shared by every value, fields that are always filled, non-negative numbers, and an uniqueness check for a column whose values are all different.
+
+**Every proposed check is test-run on your staged data first.** If the data already breaks it (for example a country-format check when some rows hold "Germany"), a red "Heads-up" shows how many rows would be flagged and which values, and the check is proposed as a *warning* so it cannot block your load; change it to an error once the data is clean. The top of the tab also lists **mandatory fields that are not mapped yet**, because those fail the automatic mandatory check and block the load until you map them, give them a fixed value, or clear their mandatory flag.
+
+Each suggestion says why it is made, how sure it is (high or medium), and what it would add ("Show exactly what would be written"). Several similar suggestions are grouped, for example one phone-number format check for nine fields. Applying a value list also switches the fields it covers from MOVE to XREF in one validated step; a suggestion that would break the project is refused and reported while the others still go through. The server re-creates every proposal when you apply, so only suggestions it really made can be applied. Applied suggestions disappear from the tab; dismissed ones can be brought back.
+
+### Defining the target structure
+
+An object starts with its source only. Open **2 Structures & mapping** and choose a way in:
+
+- **A. Upload a template file.** Supported: the SAP Migration Cockpit template as Excel XML (`.xml`, read from its "Field List" sheet, which carries description, type, length and mandatory flag), the zipped CSV templates (`.zip`, one CSV per structure; `(k)` marks key fields and `(*)` mandatory ones), the Excel version of the Cockpit template, or your own `.xlsx` / `.csv`. For your own files a column picker lets you say which column is the field name, description, type, length, mandatory flag, key flag and (when one file lists several structures) the structure. A file can hold many structures; a preview lets you tick the ones to create (structures the file marks as mandatory are ticked for you) and name them.
+- **B. Type or paste the fields.** One field per line: name, then optionally description, type, length and X for mandatory. Pasting from Excel works.
+- **C. Copy the source columns.** A quick start when there is no template.
+
+A **blank template** to fill in is available as Excel or CSV on the same page (one sheet can list several structures). Types are recognised in common spellings (Text/CHAR, Number/INT, Decimal/DEC/CURR/QUAN, Date/DATS, Boolean); anything else becomes text.
+
+Key fields (`key`) get an automatic uniqueness check on their combination. To combine two files, define the structure from one and use **Update the target structure** on the mapping page with the other: new fields are added, description, type, length, mandatory and key are updated, and your mapping rules stay. For the Cockpit, the XML has the descriptions, types and lengths, while the zip marks every key field.
+
+On the mapping page, **Auto-map by matching names** sets every not-yet-mapped field whose name equals a source column (ignoring case, spaces and `_`) to MOVE, and the progress box shows how many fields and mandatory fields are still unmapped. Large structures can be filtered by name, "only not mapped" and "only mandatory".
+
+Every change you make is checked against the whole project before it is kept; if it would break something, the file is left as it was and you are told why. Saving from a form rewrites that YAML file without its comments; the **Files** page lets you edit the raw YAML, SQL and XREF files instead. The working database is a SQLite file in the project folder unless you set the environment variable named in `project.yaml` (for example to a PostgreSQL URL) before starting `dmc ui`. The interface only answers on localhost and runs one operation at a time.
+
 ## 1. Concepts
 
 | Term | Meaning |
@@ -124,6 +175,7 @@ fields:
 | `CONCAT` | Join `source_fields` (at least two) with `separator`; empty values count as empty text. |
 | `SUBSTRING` | `length` characters of `source_field` from `start` (1-based). |
 | `NOT_MIGRATED` | Documented but left out of the target table. |
+| `UNMAPPED` | The target field exists (it came from the target structure) but has no source yet. It stays in the target table and load file, empty. A mandatory field left unmapped fails the mandatory check. |
 | `SQL` | A free SQL `expression` per row; alias `s` is the staging table. |
 
 Anything more complex is a **custom SQL** structure: set `custom_sql: sql/my_structure.sql` instead of `mapping`. The file is one `SELECT` that must return `_dmc_row_no` and `_dmc_run_id` if you want row-level tracing. It is a template: `{{ stg.<source> }}`, `{{ xref.<name> }}` and `{{ tgt.<structure> }}` give table names.
@@ -132,7 +184,19 @@ The SQL generated for mappings is plain ANSI that runs on SQLite and PostgreSQL.
 
 ## 4. Checks (`checks.yaml`)
 
-Mandatory, length and data-type checks come from the mapping automatically. Add the rest here. Every check has `name`, `structure`, `severity` (`error` blocks the load, `warn` is reported only) and an optional `description`.
+**Only checks you have confirmed run.** Nothing is checked automatically, and with nothing confirmed the Check step runs nothing and the load is never held back.
+
+The rules your target structure implies (mandatory flags, lengths, data types, keys) are confirmed per kind, each as `error` (blocks the load) or `warn` (reports only):
+
+```yaml
+from_mapping:
+  mandatory: error
+  length: warn
+  data_type: warn
+  key: error
+```
+
+In the web interface this is the "Rules from your target structure" card on the Checks tab, or a proposal on the Proposals tab. Add your own checks under `checks:`. Every check has `name`, `structure`, `severity` (`error` blocks the load, `warn` is reported only) and an optional `description`.
 
 | Type | Settings |
 |---|---|

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="explain"><b>Two steps.</b> First define the <b>target structure</b> - the fields the target system expects, with their type, length and whether they are mandatory. Then open a structure and <b>map</b> each target field: say which source column (or rule) fills it. Target fields you have not mapped yet stay in the result, empty.</div>
+
+<h2 style="margin-top:0">Your target structures</h2>
+<table><tr><th>Structure</th><th>Fed by source</th><th>Fields</th><th>Mapped</th><th>Mandatory not mapped</th><th>Target table</th><th></th></tr>
+{% for s in structures %}{% set pr = progress[s.name] %}<tr>
+<td><a href="/p/{{ project }}/o/{{ obj }}/structures/{{ s.name }}">{{ s.name }}</a></td><td>{{ s.source }}</td>
+<td class="num">{{ pr.total if s.mapping else '-' }}</td>
+<td class="num">{% if s.mapping %}{{ pr.total - pr.unmapped }} of {{ pr.total }}{% else %}custom SQL{% endif %}</td>
+<td class="num">{% if s.mapping and pr.mandatory_unmapped %}<span class="badge WARN">{{ pr.mandatory_unmapped }}</span>{% elif s.mapping %}0{% endif %}</td>
+<td>tgt_{{ s.target_table }}</td>
+<td><form method="post" action="/p/{{ project }}/o/{{ obj }}/structures/remove" data-confirm="Remove structure {{ s.name }} and its mapping file?"><input type="hidden" name="name" value="{{ s.name }}"><button class="danger small">Remove</button></form></td></tr>
+{% else %}<tr><td colspan="7" class="muted">No target structure yet - define one below.</td></tr>{% endfor %}
+</table>
+
+<h2>Define a target structure</h2>
+<p class="sub">Pick one way in. You can add more structures later, and update one from a newer template.</p>
+
+<div class="grid">
+<form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/structures/template" enctype="multipart/form-data">
+  <h3>A. Upload a template file</h3>
+  <p class="hint">SAP Migration Cockpit template (<code>.xml</code> or the <code>.zip</code> of CSV files), or your own <code>.xlsx</code> / <code>.csv</code> list of fields. Several structures in one file are fine - you choose which to create.</p>
+  <input type="file" name="file" accept=".xml,.zip,.xlsx,.csv,.txt,.tsv" required>
+  <p><button>Read the file</button></p>
+  <p class="hint">No template yet? Download a blank one to fill in:
+    <a href="/templates/target-structure.xlsx">Excel</a> &middot; <a href="/templates/target-structure.csv">CSV</a></p>
+</form>
+
+<form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/structures/template">
+  <h3>B. Type or paste the fields</h3>
+  <p class="hint">One field per line: <code>name</code>, then optionally description, type, length, mandatory (X). You can paste straight from Excel.</p>
+  <label>Structure name</label><input type="text" name="structure_name" placeholder="general">
+  <textarea name="pasted" rows="6" class="code" placeholder="PARTNER&#9;Business partner&#9;Text&#9;10&#9;X&#10;NAME_ORG1&#9;Name&#9;Text&#9;40&#9;X&#10;COUNTRY&#9;Country&#9;Text&#9;2"></textarea>
+  <p><button>Continue</button></p>
+</form>
+
+<form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/structures/add">
+  <h3>C. Copy the source columns</h3>
+  <p class="hint">Quick start when there is no target template: every source column becomes a target field that moves itself. Rename and adjust afterwards.</p>
+  <div class="row">
+   <div><label>Structure name</label><input type="text" name="name" placeholder="general" size="16"></div>
+   <div><label>Target table</label><input type="text" name="target_table" placeholder="bp_general" size="16"></div>
+   <div><label>Copy columns of</label><select name="source">{% for s in sources %}<option>{{ s.name }}</option>{% endfor %}</select></div>
+  </div>
+  <p><button class="secondary">Create</button></p>
+</form>
+</div>
+{% endblock %}

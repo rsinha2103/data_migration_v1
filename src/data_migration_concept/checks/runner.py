@@ -1,4 +1,5 @@
-"""Run all checks of an object: derived from the mapping plus those in checks.yaml."""
+"""Run the checks of an object that the user has confirmed: the explicit ones in checks.yaml and
+the kinds of structure-based rule listed under `from_mapping`. Nothing else is checked."""
 
 from __future__ import annotations
 
@@ -13,8 +14,12 @@ from data_migration_concept.transform.generator import target_table
 
 
 def derived_checks(obj: LoadedObject) -> list[Check]:
-    """Mandatory, length and data-type checks implied by the mapping."""
+    """The mandatory, length, data-type and key rules the target structure implies, but only
+    the kinds the user has confirmed in `from_mapping` (each with its own severity)."""
+    confirmed = obj.from_mapping
     checks: list[Check] = []
+    if not confirmed:
+        return checks
     for st in obj.config.structures:
         mapping = obj.mappings.get(st.name)
         if mapping is None:
@@ -22,12 +27,42 @@ def derived_checks(obj: LoadedObject) -> list[Check]:
         for fld in mapping.fields:
             if isinstance(fld.rule, cfg.NotMigratedRule):
                 continue
-            if fld.mandatory:
-                checks.append(builtin.MandatoryCheck(st.name, fld.target_field))
-            if fld.length is not None:
-                checks.append(builtin.LengthCheck(st.name, fld.target_field, fld.length))
-            if fld.data_type != "string":
-                checks.append(builtin.DataTypeCheck(st.name, fld.target_field, fld.data_type))
+            if fld.mandatory and "mandatory" in confirmed:
+                checks.append(
+                    builtin.MandatoryCheck(
+                        st.name,
+                        fld.target_field,
+                        confirmed["mandatory"],  # type: ignore[arg-type]
+                        unmapped=isinstance(fld.rule, cfg.UnmappedRule),
+                    )
+                )
+            if fld.length is not None and "length" in confirmed:
+                checks.append(
+                    builtin.LengthCheck(
+                        st.name,
+                        fld.target_field,
+                        fld.length,
+                        confirmed["length"],  # type: ignore[arg-type]
+                    )
+                )
+            if fld.data_type != "string" and "data_type" in confirmed:
+                checks.append(
+                    builtin.DataTypeCheck(
+                        st.name,
+                        fld.target_field,
+                        fld.data_type,
+                        confirmed["data_type"],  # type: ignore[arg-type]
+                    )
+                )
+        keys = [
+            f.target_field
+            for f in mapping.fields
+            if f.key and not isinstance(f.rule, cfg.NotMigratedRule)
+        ]
+        if keys and "key" in confirmed:
+            checks.append(
+                builtin.UniqueCheck(f"key.{st.name}", st.name, keys, confirmed["key"])  # type: ignore[arg-type]
+            )
     return checks
 
 
@@ -86,11 +121,16 @@ def run_checks(
     runlog: RunLog,
     run_id: str,
 ) -> list[CheckResult]:
-    """Run every check, store results and rejects in the run log, and return the results."""
+    """Run the confirmed checks, store results and rejects in the run log, and return the
+    results. With no confirmed check nothing runs: an empty list is returned and no step is
+    recorded (so nothing can block a load either)."""
     obj = project.objects.get(object_name)
     if obj is None:
         known = ", ".join(sorted(project.objects)) or "none"
         raise CheckRunError(f"unknown object '{object_name}' (known: {known})")
+    checks = build_checks(obj)
+    if not checks:
+        return []
 
     tables = {st.name: target_table(project, st) for st in obj.config.structures}
     existing = set(inspect(engine).get_table_names())
@@ -99,7 +139,7 @@ def run_checks(
         raise CheckRunError(f"target table(s) not found: {', '.join(missing)}; run transform first")
 
     ctx = CheckContext(engine=engine, project=project, obj=obj, target_tables=tables)
-    return execute_and_record(build_checks(obj), ctx, runlog, run_id, "checks")
+    return execute_and_record(checks, ctx, runlog, run_id, "checks")
 
 
 def execute_and_record(

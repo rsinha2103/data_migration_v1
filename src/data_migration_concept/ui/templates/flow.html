@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+
+<form method="post" action="/p/{{ project }}/o/{{ obj }}/run/all" data-busy class="card row">
+  <button>Run everything</button>
+  <span class="muted">Extract, transform, check, load (only if no check blocks), reconcile, profile and report - in that order. Or run the steps one by one below.</span>
+</form>
+
+<div class="explain">Not sure what to add? <a href="/p/{{ project }}/o/{{ obj }}/proposals"><b>Proposals</b></a> lists ready-made suggestions - mappings, value lists, checks, reconciliations and loads. Nothing is applied until you accept it.</div>
+
+<div class="flow">
+{% for c in cards %}
+  <div class="step {{ c.status|replace(' ', '') }}" id="{{ c.kind }}">
+    <h3>{{ loop.index }}. {{ c.kind }}</h3>
+    <span class="badge {{ c.status|replace(' ', '') }}">{{ c.status }}</span>
+    {% if c.stale and c.status != 'NOT RUN' %}<span class="badge STALE" title="A step before this one ran more recently. Run this step again.">out of date</span>{% endif %}
+    <div class="meta">{{ c.description }}</div>
+    <div class="meta"><b>Reads:</b> {{ c.reads }}<br><b>Writes:</b> {{ c.writes }}</div>
+    {% if c.rows_in is not none or c.rows_out is not none %}<div class="meta">rows in {{ c.rows_in if c.rows_in is not none else '-' }} &rarr; out {{ c.rows_out if c.rows_out is not none else '-' }}</div>{% endif %}
+    {% if c.message %}<div class="meta" style="color:var(--bad)">{{ c.message }}</div>{% endif %}
+    {% if c.started %}<div class="meta">last run {{ c.started.strftime('%Y-%m-%d %H:%M:%S') if c.started.strftime is defined else c.started }}</div>{% endif %}
+    <form method="post" action="/p/{{ project }}/o/{{ obj }}/run/{{ 'check' if c.kind == 'checks' else c.kind }}" data-busy>
+      <button class="secondary small">Run {{ c.kind }}</button></form>
+  </div>
+  {% if not loop.last %}<span class="arrow">&rarr;</span>{% endif %}
+{% endfor %}
+</div>
+<form method="post" action="/p/{{ project }}/o/{{ obj }}/run/report" data-busy class="card row">
+  <button class="secondary">Write report</button>
+  <span class="muted">Builds Excel, HTML and JSON reports from the latest result of each step.</span>
+  {% if report %}
+   <a href="/p/{{ project }}/download?path=reports/{{ obj }}_report.html&inline=1">Open HTML report</a>
+   <a href="/p/{{ project }}/download?path=reports/{{ obj }}_report.xlsx">Excel</a>
+   <a href="/p/{{ project }}/download?path=reports/{{ obj }}_report.json">JSON</a>
+  {% endif %}
+</form>
+
+{% if report %}
+<h2>Where things stand: <span class="badge {{ report.overall }}">{{ report.overall }}</span></h2>
+<div class="grid">
+ <div class="card"><b>Checks</b><br>{{ report.summary.checks_passed }} of {{ report.summary.checks_total }} passed<br>
+   {{ report.summary.checks_blocking }} blocking, {{ report.summary.checks_warnings }} warning(s)
+   <br><a href="/p/{{ project }}/o/{{ obj }}/results">See results &amp; rejected rows</a></div>
+ <div class="card"><b>Reconciliation</b><br>{{ report.summary.recons_passed }} of {{ report.summary.recons_total }} agree<br>
+   {{ report.summary.recons_blocking }} differ</div>
+ <div class="card"><b>Failed steps</b><br>{{ report.summary.failed_steps }}</div>
+</div>
+{% if report.summary.checks_blocking %}
+<div class="explain"><b>Why the load is blocked:</b> these checks failed at error severity.
+<ul>{% for c in report.checks if c.status == 'ERROR' or (c.status == 'FAIL' and c.severity == 'error') %}
+<li><a href="/p/{{ project }}/o/{{ obj }}/results?check={{ c.check_name }}">{{ c.check_name }}</a> - {{ c.message }}</li>{% endfor %}</ul></div>
+{% endif %}
+{% endif %}
+
+<h2>Setup at a glance</h2>
+<div class="grid">
+ <div class="card"><b>Sources</b> (<a href="/p/{{ project }}/o/{{ obj }}/sources">edit</a>)<ul>
+ {% for s in sources %}<li>{{ s.name }} - {{ s.path if s.kind == 'file' else (s.table or 'query') }}</li>{% endfor %}</ul></div>
+ <div class="card"><b>Structures</b> (<a href="/p/{{ project }}/o/{{ obj }}/structures">edit</a>)<ul>
+ {% for s in structures %}<li><a href="/p/{{ project }}/o/{{ obj }}/structures/{{ s.name }}">{{ s.name }}</a> &larr; {{ s.source }}, table {{ s.target_table }}</li>{% endfor %}</ul></div>
+ <div class="card"><b>Load destinations</b> (<a href="/p/{{ project }}/o/{{ obj }}/loads">edit</a>)<ul>
+ {% for l in loads %}<li>{{ l.structure }} &rarr; {{ l.path if l.kind == 'file' else l.table }}{% if l.kind == 'file' %} (<a href="/p/{{ project }}/download?path={{ l.path }}">download</a>){% endif %}</li>
+ {% else %}<li class="muted">none yet - add one before loading</li>{% endfor %}</ul></div>
+</div>
+{% endblock %}

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>{{ title }}</h1>
+<div class="card"><pre>{{ lines | join("\n") }}</pre></div>
+{% if files and project %}<p><a class="btn" href="/p/{{ project }}/files">Open the project files to fix it</a></p>{% endif %}
+<p><a href="/">Back to projects</a></p>
+{% endblock %}

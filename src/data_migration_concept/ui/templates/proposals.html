@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="explain"><b>Proposals are suggestions, already written for you - nothing here has been applied.</b>
+They come from three places: your <b>target structure</b> (keys, flags, types), a built-in <b>library</b> (standard value lists, formats such as e-mail or IBAN) and <b>your own data</b> (once you have run Extract: values, layouts, ranges). Tick what you want and press <b>Apply selected</b> - each item is added to the project exactly as shown, and anything that would break the project is refused. <b>Dismiss</b> hides a suggestion you do not want; you can bring it back.</div>
+
+{% if gaps %}
+<div class="flash error"><b>Mandatory fields that are still not mapped - they will block the load until filled:</b>
+<ul style="margin:6px 0 0">{% for g in gaps %}<li><a href="/p/{{ project }}/o/{{ obj }}/structures/{{ g.structure }}">{{ g.structure }}</a>: {{ g.fields[:12] | join(', ') }}{{ ' ...' if g.fields|length > 12 }}</li>{% endfor %}</ul>
+<span class="hint">Map each one from a source column, give it a fixed value, or - if the target does not really need it - clear its "mandatory" flag on the mapping page.</span></div>
+{% endif %}
+
+{% if not structures %}
+<p class="muted">Proposals need a target structure. <a href="/p/{{ project }}/o/{{ obj }}/structures">Define one first.</a></p>
+{% endif %}
+{% if structures and not extracted %}
+<div class="flash ok"><b>Run Extract to get proposals based on your data.</b> Until then you see the ones that need no data. <a href="/p/{{ project }}/o/{{ obj }}">Go to the flow</a></div>
+{% endif %}
+
+{% if groups %}
+<form method="post" id="proposal-form">
+<p class="row">
+  <button formaction="/p/{{ project }}/o/{{ obj }}/proposals/apply">Apply selected</button>
+  <button class="secondary" formaction="/p/{{ project }}/o/{{ obj }}/proposals/dismiss">Dismiss selected</button>
+  <span class="muted">{{ total }} proposal(s)</span>
+</p>
+{% for g in groups %}
+<h2>{{ g.label }} <span class="muted">({{ g['items']|length }})</span></h2>
+<label class="inline"><input type="checkbox" class="select-group"> select all in this group</label>
+{% for x in g['items'] %}
+<div class="card proposal">
+  <label class="inline" style="align-items:flex-start">
+    <input type="checkbox" name="ids" value="{{ x.id }}" style="margin-top:4px">
+    <span><b>{{ x.title }}</b>
+      <span class="badge {{ 'OK' if x.confidence == 'high' else 'WARN' }}">{{ x.confidence }} confidence</span>
+      <span class="badge NOTRUN">{{ x.origin }}</span>
+      {% if x.structure %}<span class="muted">&middot; {{ x.structure }}</span>{% endif %}
+    </span>
+  </label>
+  <div style="margin:4px 0 0 24px">{{ x.why }}</div>
+  <div class="hint" style="margin-left:24px">Would add: <code>{{ x.summary }}</code></div>
+  {% for n in x.notes %}{% if n.startswith("Heads-up") %}<div class="flash error" style="margin:6px 0 6px 24px;padding:6px 10px"><b>&#9888; {{ n }}</b></div>{% else %}<div class="hint" style="margin-left:24px">&#9432; {{ n }}</div>{% endif %}{% endfor %}
+  {% if x.kind == 'xref' %}
+  <details style="margin-left:24px"><summary>Show the list ({{ x.payload.rows|length }} entries)</summary>
+   <div class="scroll"><table style="width:auto"><tr><th>Legacy value</th><th>Target value</th></tr>
+   {% for a, b in x.payload.rows[:40] %}<tr><td>{{ a }}</td><td>{{ b }}</td></tr>{% endfor %}
+   {% if x.payload.rows|length > 40 %}<tr><td colspan="2" class="muted">... and {{ x.payload.rows|length - 40 }} more</td></tr>{% endif %}</table></div></details>
+  {% elif x.kind in ('check', 'recon', 'load') %}
+  <details style="margin-left:24px"><summary>Show exactly what would be written</summary>
+   <pre>{{ (x.payload.entries if x.payload.entries is defined else x.payload) | tojson(indent=2) }}</pre></details>
+  {% endif %}
+</div>
+{% endfor %}
+{% endfor %}
+</form>
+{% elif structures %}
+<p class="muted">No proposals right now - everything proposable is already in the project or dismissed.</p>
+{% endif %}
+
+{% if hidden %}
+<h2>Dismissed ({{ hidden|length }})</h2>
+<form method="post" action="/p/{{ project }}/o/{{ obj }}/proposals/restore">
+<details><summary>Show dismissed proposals</summary>
+{% for x in hidden %}<div class="card"><label class="inline"><input type="checkbox" name="ids" value="{{ x.id }}"> <b>{{ x.title }}</b> <span class="muted">({{ x.kind }})</span></label></div>{% endfor %}
+<p><button class="secondary">Bring back selected</button></p></details>
+</form>
+<form method="post" action="/p/{{ project }}/o/{{ obj }}/proposals/restore"><button class="secondary small">Bring back all dismissed</button></form>
+{% endif %}
+{% endblock %}

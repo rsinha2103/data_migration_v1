@@ -12,3 +12,6 @@ build/
 runs/
 output/
 reports/
+dmc_demo*/
+dmc_workspace/
+*.db

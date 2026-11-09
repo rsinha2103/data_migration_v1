@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% macro check_table(items) %}
+<table><tr><th>Check</th><th>Type</th><th>Structure</th><th>Severity</th><th>Result</th><th class="num">Rows</th><th class="num">Failures</th><th>Message</th></tr>
+{% for c in items %}<tr><td>{% if c.failed_count %}<a href="?check={{ c.check_name|urlencode }}">{{ c.check_name }}</a>{% else %}{{ c.check_name }}{% endif %}</td>
+<td>{{ c.check_type }}</td><td>{{ c.structure }}</td><td>{{ c.severity }}</td>
+<td><span class="badge {{ 'WARN' if c.status == 'FAIL' and c.severity == 'warn' else c.status }}">{{ 'WARN' if c.status == 'FAIL' and c.severity == 'warn' else c.status }}</span></td>
+<td class="num">{{ c.checked_count if c.checked_count is not none }}</td><td class="num">{{ c.failed_count }}{{ ' +' if c.truncated }}</td><td>{{ c.message or '' }}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">None run yet.</td></tr>{% endfor %}</table>
+{% endmacro %}
+{% block body %}
+{% include "_object_head.html" %}
+{% if not report %}
+<p class="muted">Nothing has been run for this object yet. Go to the <a href="/p/{{ project }}/o/{{ obj }}">Flow</a> tab.</p>
+{% else %}
+<h2 style="margin-top:0">Overall <span class="badge {{ report.overall }}">{{ report.overall }}</span></h2>
+<h2>Checks</h2>{{ check_table(report.checks) }}
+<h2>Reconciliation</h2>{{ check_table(report.reconciliations) }}
+
+<h2>Rejected rows{% if check %} for <code>{{ check }}</code> <a href="?">(show all)</a>{% endif %}</h2>
+<p class="hint">"Source row" is the row number in the original file or table. Up to 500 rows per check are listed.</p>
+<div class="scroll"><table><tr><th>Check</th><th>Structure</th><th class="num">Source row</th><th>Field</th><th>Value</th><th>Why</th></tr>
+{% for r in rejects %}<tr><td>{{ r.check_name }}</td><td>{{ r.structure }}</td><td class="num">{{ r.row_no if r.row_no is not none }}</td><td>{{ r.field or '' }}</td><td>{{ r.value if r.value is not none }}</td><td>{{ r.message or '' }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No rejected rows.</td></tr>{% endfor %}</table></div>
+
+<h2>Column profile</h2>
+{% for table, cols in report.profiles.items() %}
+<h3>{{ table }}</h3>
+<div class="scroll"><table><tr><th>Column</th><th class="num">Rows</th><th class="num">Empty</th><th class="num">Distinct</th><th>Min</th><th>Max</th><th>Length</th><th>Top values</th><th>Top shapes</th></tr>
+{% for p in cols %}<tr><td>{{ p.column_name }}</td><td class="num">{{ p.row_count }}</td><td class="num">{{ p.empty_count }}</td><td class="num">{{ p.distinct_count }}</td>
+<td>{{ p.min_value if p.min_value is not none }}</td><td>{{ p.max_value if p.max_value is not none }}</td><td>{{ p.min_length if p.min_length is not none }}-{{ p.max_length if p.max_length is not none }}</td>
+<td class="mono">{% for v, n in (p.top_values | fromjson)[:4] %}{{ v }} ({{ n }}) {% endfor %}</td>
+<td class="mono">{% for v, n in (p.top_patterns | fromjson)[:3] %}{{ v }} ({{ n }}) {% endfor %}</td></tr>{% endfor %}
+</table></div>
+{% else %}<p class="muted">Run the Profile step to see this.</p>{% endfor %}
+{% endif %}
+{% endblock %}

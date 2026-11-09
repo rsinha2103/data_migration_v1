@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="crumbs"><a href="/">Projects</a> / <a href="/p/{{ project }}">{{ project }}</a> / Run history</div>
+<h1>Run history</h1>
+<p class="sub">Every step you run is recorded here (newest first, last 60).</p>
+<table><tr><th>When</th><th>Object</th><th>Steps</th><th>Status</th><th>Run id</th></tr>
+{% for r in runs %}<tr><td>{{ r.started_at.strftime('%Y-%m-%d %H:%M:%S') if r.started_at.strftime is defined else r.started_at }}</td>
+<td><a href="/p/{{ project }}/o/{{ r.object_name }}">{{ r.object_name }}</a></td>
+<td>{{ r.steps | join(', ') }}</td>
+<td><span class="badge {{ 'FAILED' if r.problem or r.status == 'FAILED' else r.status }}">{{ 'FAILED' if r.problem or r.status == 'FAILED' else r.status }}</span></td>
+<td class="mono">{{ r.run_id }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">Nothing has run yet.</td></tr>{% endfor %}</table>
+{% endblock %}

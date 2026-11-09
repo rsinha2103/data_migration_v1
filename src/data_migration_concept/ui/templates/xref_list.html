@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="explain">An <b>XREF list</b> translates legacy values into target values (country codes, units, payment terms). Use it from a mapping with the XREF rule. If the data contains a value that is not in the list, Transform stops and tells you which - nothing is guessed.</div>
+<p class="hint">Ready-made lists (country, currency, unit of measure, language) are offered on the <a href="/p/{{ project }}/o/{{ obj }}/proposals">Proposals</a> tab when a field looks like one; nothing is added until you accept it.</p>
+<table><tr><th>Name</th><th>Entries</th><th>Used by</th></tr>
+{% for i in items %}<tr><td><a href="/p/{{ project }}/o/{{ obj }}/xref/{{ i.name }}">{{ i.name }}</a></td><td class="num">{{ i.rows }}</td>
+<td>{{ i.used | join(', ') or 'not used yet' }}</td></tr>
+{% else %}<tr><td colspan="3" class="muted">No XREF lists yet.</td></tr>{% endfor %}</table>
+
+<h2>New XREF list</h2>
+<form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/xref/new">
+ <div class="row"><div><label>Name</label><input type="text" name="name" placeholder="country"></div></div>
+ <label>Entries <span class="hint">one per line: legacy value, target value (comma, semicolon or tab - you can paste from Excel)</span></label>
+ <textarea name="content" rows="6" class="code" placeholder="DE,DE&#10;UK,GB"></textarea>
+ <p><button>Create</button></p>
+</form>
+{% endblock %}

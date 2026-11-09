@@ -75,6 +75,10 @@ def transform_object(
         known = ", ".join(sorted(project.objects)) or "none"
         raise TransformError(f"unknown object '{object_name}' (known: {known})")
 
+    if not obj.config.structures:
+        raise TransformError(
+            f"object '{object_name}' has no target structure yet; define one before transforming"
+        )
     generated = generate_object(project, obj)
     build_files = write_build_files(project, obj, generated) if write_build else {}
     dialect = engine.dialect.name

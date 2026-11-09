@@ -41,6 +41,7 @@ class LoadedObject:
     root: Path
     mappings: dict[str, MappingFile] = field(default_factory=dict)  # keyed by structure name
     checks: list[CheckConfig] = field(default_factory=list)
+    from_mapping: dict[str, str] = field(default_factory=dict)
     recons: list[ReconConfig] = field(default_factory=list)
 
     def target_fields(self, structure: str) -> set[str] | None:
@@ -156,6 +157,7 @@ def _load_object(
         parsed = _validate(ChecksFile, cdata, checks_file, base, errors)
         if parsed is not None:
             loaded.checks = parsed.checks
+            loaded.from_mapping = {str(k): str(v) for k, v in parsed.from_mapping.items()}
             _validate_checks(loaded, _rel(checks_file, base), errors)
     recon_file = object_dir / "recon.yaml"
     if recon_file.is_file():

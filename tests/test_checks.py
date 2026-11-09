@@ -236,3 +236,32 @@ def test_referential_check_needs_existing_ref_structure(project_copy):
         )
     with pytest.raises(ConfigError, match="unknown ref_structure 'ghost'"):
         load_project(project_copy)
+
+
+def test_failure_messages_show_examples(project_copy, working):
+    engine, log = working
+    _edit(
+        project_copy,
+        "mappings/general.yaml",
+        "mandatory: true\n    length: 10",
+        "data_type: integer\n    length: 10",
+    )
+    _edit(project_copy, "data/lfa1.csv", "0000100002,", "10X,")
+    results, _ = _pipeline(project_copy, engine, log)
+    r = _by_name(results)["datatype.general.PARTNER"]
+    assert r.message == "1 row(s) failed (e.g. 10X)"
+
+
+def test_a_mandatory_field_that_is_not_mapped_says_so(project_copy, working):
+    engine, log = working
+    _edit(
+        project_copy,
+        "mappings/general.yaml",
+        "  - target_field: SEARCH_TERM",
+        "  - target_field: EXTRA\n    mandatory: true\n    rule: { type: UNMAPPED }\n  - target_field: SEARCH_TERM",
+    )
+    results, _ = _pipeline(project_copy, engine, log)
+    r = _by_name(results)["mandatory.general.EXTRA"]
+    assert r.message == "4 row(s) failed - the field is mandatory but not mapped yet"
+    plain = _by_name(results)["mandatory.general.NAME_ORG1"]
+    assert plain.status == CheckStatus.PASS  # mapped fields are unaffected

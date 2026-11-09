@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>How it works</h1>
+<p class="sub">A migration moves data through seven steps. Each step reads something, writes something, and is recorded so you can see exactly what happened.</p>
+
+<div class="flow">
+{% for kind, d in steps.items() %}
+  <div class="step"><h3>{{ loop.index }}. {{ kind }}</h3>
+  <div>{{ d[0] }}</div>
+  <div class="meta"><b>Reads:</b> {{ d[1] }}<br><b>Writes:</b> {{ d[2] }}</div></div>
+  {% if not loop.last %}<span class="arrow">&rarr;</span>{% endif %}
+{% endfor %}
+<span class="arrow">&rarr;</span>
+<div class="step"><h3>Report</h3><div>Collects the latest result of every step into an Excel, HTML and JSON report you can share.</div>
+<div class="meta"><b>Reads:</b> the run history<br><b>Writes:</b> reports/ folder</div></div>
+</div>
+
+<h2>The ideas behind it</h2>
+<div class="card">
+<ul>
+<li><b>Project</b> - a folder with all your settings. <b>Object</b> - one thing you migrate (suppliers, materials). <b>Structure</b> - one target layout of an object (general data, bank details).</li>
+<li><b>Source</b> - where legacy data comes from: a CSV, Excel or Parquet file you upload, or a database table.</li>
+<li><b>Mapping</b> - for every target field, a rule: move a column, set a fixed value, translate through a value list (XREF), join or cut text, or write SQL.</li>
+<li><b>XREF</b> - a two-column list that translates legacy values into target values, for example country codes. Unlisted values stop the transform so nothing is silently wrong.</li>
+<li><b>Checks</b> - rules the target data must satisfy. A failing <i>error</i> check blocks the load; a <i>warning</i> only reports.</li>
+<li><b>Reconciliation</b> - after the load, proof that nothing was lost or changed: counts, keys, totals and values compared between source and target.</li>
+<li>Every row keeps its original row number, so each rejected row can be traced back to the source file.</li>
+</ul>
+</div>
+
+<h2>A typical session</h2>
+<ol class="card">
+<li>Create a project, then add an object by uploading a file. A first mapping that moves every column is created for you.</li>
+<li>Press <b>Extract</b> and look at the staged data and the column profile.</li>
+<li>Edit the mapping (rename fields, add XREF translations, fixed values), add checks, then press <b>Transform</b> and <b>Check</b>.</li>
+<li>Fix what the checks found (in the source file or the rules) and repeat until nothing blocks.</li>
+<li>Add a load destination, press <b>Load</b>, then <b>Reconcile</b> and <b>Report</b>.</li>
+</ol>
+<p>All data and settings stay on this computer. Pages and files are only reachable from localhost.</p>
+{% endblock %}

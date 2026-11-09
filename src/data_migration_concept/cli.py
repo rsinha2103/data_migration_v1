@@ -152,6 +152,13 @@ def check(
             typer.echo(f"{name}: FAILED (run {run_id})\n{exc}", err=True)
             blocked = True
             continue
+        if not results:
+            runlog.finish_run(run_id, RunStatus.SUCCESS)
+            typer.echo(
+                f"{name}: no checks are confirmed, so nothing was run "
+                "(see checks.yaml: from_mapping and checks)."
+            )
+            continue
         blocking = blocking_failures(results)
         runlog.finish_run(run_id, RunStatus.FAILED if blocking else RunStatus.SUCCESS)
         typer.echo(f"{name}: {'BLOCKED' if blocking else 'OK'} (run {run_id})")
@@ -177,6 +184,31 @@ def _print_check_results(results: list[CheckResult], *, only_problems: bool = Fa
             typer.echo(
                 f"        row {f.row_no}: {f.message}" + (f" [{f.value}]" if f.value else "")
             )
+
+
+@app.command()
+def ui(
+    workspace: Annotated[Path, typer.Option(help="Folder where projects are kept.")] = Path(
+        "dmc_workspace"
+    ),
+    port: Annotated[int, typer.Option(help="Port to listen on (localhost only).")] = 8765,
+    open_browser: Annotated[
+        bool, typer.Option("--open/--no-open", help="Open the browser.")
+    ] = True,
+) -> None:
+    """Start the local web interface and open it in the browser."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from data_migration_concept.ui.app import create_app
+
+    url = f"http://localhost:{port}"
+    typer.echo(f"Workspace: {workspace.resolve()}\nOpen {url}  (Ctrl+C to stop)")
+    if open_browser:
+        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+    uvicorn.run(create_app(workspace), host="127.0.0.1", port=port, log_level="warning")
 
 
 @app.command()

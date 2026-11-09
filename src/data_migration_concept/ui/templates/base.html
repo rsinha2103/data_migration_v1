@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Data_Migration_Concept{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head><body>
+<header class="top">
+  <span class="brand">Data_Migration_Concept</span>
+  <a href="/">Projects</a>
+  <a href="/how-it-works">How it works</a>
+  {% if project %}<a href="/p/{{ project }}">{{ project }}</a><a href="/p/{{ project }}/runs">Run history</a><a href="/p/{{ project }}/files">Files</a>{% endif %}
+</header>
+<main>
+{% if flash %}
+<div class="flash {{ flash.kind }}"><b>{{ flash.title }}</b>
+{% if flash.lines %}<pre>{{ flash.lines | join("\n") }}</pre>{% endif %}</div>
+{% endif %}
+{% block body %}{% endblock %}
+</main></body></html>

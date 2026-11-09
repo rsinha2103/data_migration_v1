@@ -26,6 +26,14 @@ This copies the fictitious Acme project into `dmc_demo/`, runs every step on SQL
 uv run dmc demo --dir dmc_demo_bad --defects
 ```
 
+## Use it from your browser
+
+```bash
+uv run dmc ui
+```
+
+Opens a local web app (localhost only) where you can see the whole flow, upload your own data, edit mappings, value lists (XREF), checks, reconciliations and load destinations on screen, run each step, and inspect staged and target data, rejected rows, generated SQL and reports. Start with the demo project, or create a project and upload a CSV/Excel file. Projects are kept in `dmc_workspace/` (change with `--workspace`).
+
 ## Commands
 
 | Command | Purpose |
@@ -40,6 +48,7 @@ uv run dmc demo --dir dmc_demo_bad --defects
 | `dmc recon <project> [object]` | Source vs target reconciliation |
 | `dmc report <project> [object]` | Excel / HTML / JSON reports |
 | `dmc demo` | Run the example project end to end |
+| `dmc ui` | Start the local web interface |
 
 Set `DMC_WORKING_DB_URL` (see `.env.example`) to the database the working tables should live in, for example `sqlite:///work.db` or a PostgreSQL URL.
 

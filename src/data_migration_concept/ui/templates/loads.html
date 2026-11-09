@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "_object_head.html" %}
+<div class="explain">A <b>load destination</b> says where the finished target data goes: a file (CSV, Excel, Parquet) in the project's <code>output</code> folder, or a database table. Loading always runs the checks first and stops if any error-severity check fails. Files are written atomically - a failed load never leaves a half-written file.</div>
+<div class="card">
+  {% if gating.rules or gating.checks %}
+  <b>{{ gating.checks }} confirmed check(s) and {{ gating.rules }} confirmed structure rule(s)</b> are run before every load. Any that fail at <i>error</i> severity hold the load back (see the <a href="/p/{{ project }}/o/{{ obj }}/checks">Checks</a> tab).
+  {% else %}
+  <b>No checks are confirmed, so nothing can hold this load back.</b> You can still add and confirm checks on the <a href="/p/{{ project }}/o/{{ obj }}/checks">Checks</a> tab.
+  {% endif %}
+  <form method="post" action="/p/{{ project }}/o/{{ obj }}/run/load" data-busy class="row" style="margin-top:8px">
+    <button {{ 'disabled' if not loads }}>Run load</button>
+    <span class="muted">{{ 'Needs the target tables (run Transform first).' if loads else 'Add a load destination below first.' }}</span>
+  </form>
+</div>
+<p class="hint">A default destination for each structure is offered on the <a href="/p/{{ project }}/o/{{ obj }}/proposals">Proposals</a> tab.</p>
+<table><tr><th>Structure</th><th>Kind</th><th>Destination</th><th></th></tr>
+{% for l in loads %}<tr><td>{{ l.structure }}</td><td>{{ l.kind }}</td>
+<td>{% if l.kind == 'file' %}{{ l.path }} ({{ l.format }}){% else %}{{ l.connection }}: {{ l.table }} ({{ l.mode }}){% endif %}</td>
+<td><form method="post" action="/p/{{ project }}/o/{{ obj }}/loads/delete" data-confirm="Delete this destination?"><input type="hidden" name="index" value="{{ loop.index0 }}"><button class="danger small">Delete</button></form></td></tr>
+{% else %}<tr><td colspan="4" class="muted">None yet.</td></tr>{% endfor %}</table>
+
+<h2>Add a destination</h2>
+<form class="card" method="post" action="/p/{{ project }}/o/{{ obj }}/loads/add">
+ <div class="row">
+  <div><label>Structure</label><select name="structure">{% for s in structures %}<option>{{ s }}</option>{% endfor %}</select></div>
+  <div><label>Kind</label><select name="kind" data-switch><option value="file">File</option><option value="table">Database table</option></select></div>
+ </div>
+ <div class="row" data-for="file">
+  <div><label>Path in the project</label><input type="text" name="path" value="output/{{ obj }}.csv" size="34"></div>
+  <div><label>Format</label><select name="format"><option>csv</option><option>xlsx</option><option>parquet</option></select></div>
+  <div><label>CSV delimiter</label><input type="text" name="delimiter" value="," size="2"></div>
+  <label class="inline"><input type="checkbox" name="include_lineage"> include row-tracking columns</label>
+ </div>
+ <div class="row" data-for="table">
+  <div><label>Connection</label><select name="connection">{% for c in connections %}<option>{{ c }}</option>{% endfor %}</select></div>
+  <div><label>Table</label><input type="text" name="table" size="24"></div>
+  <div><label>If it exists</label><select name="mode"><option value="replace">replace</option><option value="append">append</option></select></div>
+ </div>
+ <p><button>Add</button></p>
+</form>
+{% endblock %}
