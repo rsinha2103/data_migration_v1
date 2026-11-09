@@ -72,4 +72,4 @@ DMC_TEST_POSTGRES_URL=postgresql+psycopg://dmc:dmc@localhost:5432/dmc uv run pyt
 
 ## License
 
-Apache 2.0, see `LICENSE`.
+Copyright 2026 capt_conv. Licensed under the Apache License, Version 2.0; see `LICENSE`.
