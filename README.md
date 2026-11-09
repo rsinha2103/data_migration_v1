@@ -52,7 +52,7 @@ Opens a local web app (localhost only) where you can see the whole flow, upload 
 
 Set `DMC_WORKING_DB_URL` (see `.env.example`) to the database the working tables should live in, for example `sqlite:///work.db` or a PostgreSQL URL.
 
-Read the [user guide](docs/user-guide.md) to set up your own project. Design decisions are in [docs/adr](docs/adr).
+Read the [user guide](docs/user-guide.md) to set up your own project. The complete screen-by-screen, file, engine and test reference is in [docs/product-documentation](docs/product-documentation/00-index.md). Design decisions are in [docs/adr](docs/adr).
 
 ## Development
 
