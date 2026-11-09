@@ -160,7 +160,7 @@ fields:
 | `MOVE` | `source_field` | `s."COL"` (or `alias."COL"` for `alias.COL` of a joined source) |
 | `CONSTANT` | `value` (text, number, boolean or null) | the literal (quotes doubled; numbers/booleans as such; null -> `NULL`) |
 | `XREF` | `source_field`, `xref` (list name), `on_unmapped` (`error` default / `default` / `blank`), `default` (required when `on_unmapped: default`) | value of `xN."target_value"` from `LEFT JOIN xref_<object>_<name> AS xN ON CAST(col AS TEXT) = xN."legacy_value"`; `default` -> `COALESCE(value, 'default')`; `error` also runs a pre-check that stops on unmapped values |
-| `CONCAT` | `source_fields` (>= 2), `separator` (`""`) | `COALESCE(CAST(a AS TEXT),'') || 'sep' || COALESCE(CAST(b AS TEXT),'') ...` |
+| `CONCAT` | `source_fields` (>= 2), `separator` (`""`) | `COALESCE(CAST(a AS TEXT),'') \|\| 'sep' \|\| COALESCE(CAST(b AS TEXT),'') ...` |
 | `SUBSTRING` | `source_field`, `start` (>= 1, default 1), `length` (>= 1) | `SUBSTR(CAST(col AS TEXT), start, length)` |
 | `SQL` | `expression` | `(<expression>)`, after Jinja rendering (names `stg.<source>`, `xref.<name>`, `tgt.<structure>`) |
 | `NOT_MIGRATED` | none | the field is omitted from the target table |

@@ -125,7 +125,7 @@ The working database holds **three kinds of data tables** and **six run-log tabl
 | `objects/<object>/proposals_dismissed.json` | ids of dismissed proposals (UI only) |
 | `build/<object>/<structure>.sql` | the generated SQL written by Transform (CLI and UI) |
 | `output/*` | load destinations (files) |
-| `reports/<object>_report.xlsx|html|json` | reports |
+| `reports/<object>_report.xlsx\|html\|json` | reports |
 | `work.db` | the SQLite working database used by the UI (unless `DMC_WORKING_DB_URL` is set) |
 | `<workspace>/.dmc_projects.json` | list of projects added by path (UI) |
 | `.dmc_probe/` | temporary folder used while checking an uploaded file; removed immediately |

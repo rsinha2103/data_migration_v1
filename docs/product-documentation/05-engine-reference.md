@@ -12,7 +12,7 @@ Every UI step and every CLI command starts a **run** (`dmc_run`, status `RUNNING
 | `xref:<name>` | Transform (one per XREF list used by a mapping or override) |
 | `transform:<structure>` | Transform (one per structure) |
 | `checks` | Check / the check phase of Load (only when at least one check is confirmed) |
-| `load:<structure>:<file|table>` | Load (one per destination) |
+| `load:<structure>:<file\|table>` | Load (one per destination) |
 | `recon` | Reconcile |
 | `profile:<table>` | Profile (one per table) |
 
@@ -174,7 +174,7 @@ Derived checks (named `mandatory.<structure>.<field>`, `length.<structure>.<fiel
 | Type | Algorithm and messages |
 |---|---|
 | COUNT | `expected` = source rows after exclusions (+ all rows of other row sets); `actual` = target rows; fails when `abs(actual - expected) > tolerance`: `source has T rows (E intentionally excluded), so X expected; target has A (difference +/-D)` |
-| KEYS | key tuples (trimmed text, NULL = empty) of source and target; `key is in the source but missing in the target` / `key is in the target but not in the source` (value `k1|k2`) |
+| KEYS | key tuples (trimmed text, NULL = empty) of source and target; `key is in the source but missing in the target` / `key is in the target but not in the source` (value `k1\|k2`) |
 | TOTALS | aggregate (sum/count/count_distinct/min/max) per group on each side; `sum is X in the source but Y in the target` (`group g: ` prefix); non-numeric values for sum/min/max -> ERROR `non-numeric value 'x' cannot be used for sum` |
 | FIELDS | matched on the key; per field pair: numeric values compared with tolerance, otherwise text (trim, optional case-folding); missing target keys are KEYS' business; message `<key>: SRC is 'a' in the source but 'b' in the target` |
 
