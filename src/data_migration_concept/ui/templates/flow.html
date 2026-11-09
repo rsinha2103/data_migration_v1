@@ -14,7 +14,7 @@
   <div class="step {{ c.status|replace(' ', '') }}" id="{{ c.kind }}">
     <h3>{{ loop.index }}. {{ c.kind }}</h3>
     <span class="badge {{ c.status|replace(' ', '') }}">{{ c.status }}</span>
-    {% if c.stale and c.status != 'NOT RUN' %}<span class="badge STALE" title="A step before this one ran more recently. Run this step again.">out of date</span>{% endif %}
+    {% if c.stale and c.status != 'NOT RUN' %}<span class="badge STALE" title="{{ c.stale_reason }} Run this step again.">out of date</span>{% endif %}
     <div class="meta">{{ c.description }}</div>
     <div class="meta"><b>Reads:</b> {{ c.reads }}<br><b>Writes:</b> {{ c.writes }}</div>
     {% if c.rows_in is not none or c.rows_out is not none %}<div class="meta">rows in {{ c.rows_in if c.rows_in is not none else '-' }} &rarr; out {{ c.rows_out if c.rows_out is not none else '-' }}</div>{% endif %}

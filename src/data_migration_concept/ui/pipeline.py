@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import inspect, text
@@ -188,9 +190,35 @@ def run_all(ctx: Ctx, object_name: str) -> list[StepOutcome]:
     return outcomes
 
 
+# Files whose change makes the result of a step out of date (relative to the object folder).
+CONFIG_FILES = {
+    "extract": ["object.yaml", "data/**/*"],
+    "transform": ["object.yaml", "mappings/*", "xref/*", "sql/*"],
+    "checks": ["object.yaml", "mappings/*", "checks.yaml"],
+    "load": ["object.yaml", "mappings/*", "xref/*", "sql/*", "checks.yaml"],
+    "recon": ["object.yaml", "mappings/*", "recon.yaml"],
+}
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _changed_since(root: Path, kind: str, moment: datetime) -> str | None:
+    """Name of a file of this object that was changed after `moment`, if any."""
+    limit = _aware(moment).timestamp()
+    for pattern in CONFIG_FILES.get(kind, []):
+        for path in root.glob(pattern):
+            if path.is_file() and path.stat().st_mtime > limit:
+                return path.relative_to(root).as_posix()
+    return None
+
+
 def pipeline_state(ctx: Ctx, object_name: str) -> list[dict[str, Any]]:
-    """Newest run of each step kind: status, row counts and whether an earlier step is newer."""
+    """Newest run of each step kind: status, row counts and whether the result is out of date
+    (an earlier step ran more recently, or a file it depends on was changed after it ran)."""
     runlog = ctx.runlog
+    root = ctx.project.objects[object_name].root
     newest: dict[str, dict[str, Any]] = {}
     for run in runlog.list_runs(ctx.project.config.name, object_name):
         for st in runlog.get_steps(run["run_id"]):
@@ -209,7 +237,7 @@ def pipeline_state(ctx: Ctx, object_name: str) -> list[dict[str, Any]]:
         card: dict[str, Any] = {
             "kind": kind, "description": desc, "reads": reads, "writes": writes,
             "status": "NOT RUN", "rows_in": None, "rows_out": None, "run_id": None,
-            "started": None, "stale": False, "message": "",
+            "started": None, "stale": False, "stale_reason": "", "message": "",
         }  # fmt: skip
         if found:
             slot = found
@@ -223,8 +251,18 @@ def pipeline_state(ctx: Ctx, object_name: str) -> list[dict[str, Any]]:
                 started=slot["run"]["started_at"],
                 message=(failed[0]["message"] if failed else "") or "",
             )
-            if kind in ("transform", "checks", "load", "recon") and previous_start is not None:
-                card["stale"] = bool(previous_start > slot["run"]["started_at"])
+            earlier_newer = (
+                kind in ("transform", "checks", "load", "recon")
+                and previous_start is not None
+                and previous_start > slot["run"]["started_at"]
+            )
+            if earlier_newer:
+                card["stale"] = True
+                card["stale_reason"] = "A step before this one ran more recently."
+            changed = _changed_since(root, kind, slot["run"]["started_at"])
+            if changed:
+                card["stale"] = True
+                card["stale_reason"] = f"{changed} was changed after this step ran."
         newer = card["started"] and (previous_start is None or card["started"] > previous_start)
         if kind in ("extract", "transform", "checks") and newer:
             previous_start = card["started"]
