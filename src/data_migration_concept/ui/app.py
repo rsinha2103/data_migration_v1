@@ -30,6 +30,16 @@ HERE = Path(__file__).parent
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1", "testserver"}
 
 
+# Starlette refuses forms with more than 1,000 fields by default. The mapping page posts about a
+# dozen inputs per target field, so structures with a hundred or more fields (SAP tables have
+# hundreds) need a higher limit. This is a local single-user tool, so the limit is generous.
+MAX_FORM_FIELDS = 200_000
+
+
+async def read_form(request: Request) -> Any:
+    return await request.form(max_fields=MAX_FORM_FIELDS)
+
+
 class Flash:
     """One-shot messages shown after a redirect."""
 
@@ -392,7 +402,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/structures/template/{token}")
     async def template_confirm(request: Request, p: str, o: str, token: str) -> RedirectResponse:
-        form = await request.form()
+        form = await read_form(request)
         back_url = f"/p/{p}/o/{o}/structures"
         try:
             item = pending.get(token, p, o)
@@ -457,7 +467,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/structures/{s}/joins")
     async def join_add(request: Request, p: str, o: str, s: str) -> RedirectResponse:
-        form = await request.form()
+        form = await read_form(request)
         url = f"/p/{p}/o/{o}/structures/{s}"
         pairs = [(str(form.get(f"main{i}", "")), str(form.get(f"other{i}", ""))) for i in range(3)]
         try:
@@ -485,7 +495,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/structures/{s}/rowsets")
     async def rowset_add(request: Request, p: str, o: str, s: str) -> RedirectResponse:
-        form = await request.form()
+        form = await read_form(request)
         url = f"/p/{p}/o/{o}/structures/{s}"
         pairs = [(str(form.get(f"main{i}", "")), str(form.get(f"other{i}", ""))) for i in range(3)]
         try:
@@ -516,7 +526,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/structures/{s}/rowsets/{name}/rules")
     async def rowset_rules(request: Request, p: str, o: str, s: str, name: str) -> RedirectResponse:
-        form = await request.form()
+        form = await read_form(request)
         url = f"/p/{p}/o/{o}/structures/{s}"
         indexes = sorted({int(m.group(1)) for k in form if (m := re.match(r"^o(\d+)_field$", k))})
         rules: list[tuple[str, dict[str, Any]]] = []
@@ -642,7 +652,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/structures/{s}")
     async def mapping_save(request: Request, p: str, o: str, s: str) -> RedirectResponse:
-        form = await request.form()
+        form = await read_form(request)
         url = f"/p/{p}/o/{o}/structures/{s}"
         try:
             mapping = editor.mapping_from_form(form)
@@ -915,7 +925,7 @@ def create_app(workspace: Path) -> FastAPI:
         return rules_page(request, p, o, "recon")
 
     async def rules_add(request: Request, p: str, o: str, kind: str) -> RedirectResponse:
-        form = await request.form()
+        form = await read_form(request)
         checks = kind == "checks"
         url = f"/p/{p}/o/{o}/{kind}"
         try:
@@ -932,7 +942,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/checks/from-mapping")
     async def checks_from_mapping(request: Request, p: str, o: str) -> RedirectResponse:
-        form = await request.form()
+        form = await read_form(request)
         wanted = {k: str(form.get(k, "off")) for k in editor.FROM_MAPPING_KINDS}
         url = f"/p/{p}/o/{o}/checks"
         try:
@@ -982,7 +992,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/loads/add")
     async def loads_add(request: Request, p: str, o: str) -> RedirectResponse:
-        form = await request.form()
+        form = await read_form(request)
         url = f"/p/{p}/o/{o}/loads"
         try:
             editor.add_load(project_dir(p), o, editor.load_from_form(form))
@@ -1037,7 +1047,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/proposals/apply")
     async def proposals_apply(request: Request, p: str, o: str) -> RedirectResponse:
-        ids = [str(i) for i in (await request.form()).getlist("ids")]
+        ids = [str(i) for i in (await read_form(request)).getlist("ids")]
         url = f"/p/{p}/o/{o}/proposals"
         if not ids:
             return fail(url, "Nothing was selected.")
@@ -1062,7 +1072,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/proposals/dismiss")
     async def proposals_dismiss(request: Request, p: str, o: str) -> RedirectResponse:
-        ids = [str(i) for i in (await request.form()).getlist("ids")]
+        ids = [str(i) for i in (await read_form(request)).getlist("ids")]
         url = f"/p/{p}/o/{o}/proposals"
         if not ids:
             return fail(url, "Nothing was selected.")
@@ -1071,7 +1081,7 @@ def create_app(workspace: Path) -> FastAPI:
 
     @app.post("/p/{p}/o/{o}/proposals/restore")
     async def proposals_restore(request: Request, p: str, o: str) -> RedirectResponse:
-        ids = [str(i) for i in (await request.form()).getlist("ids")]
+        ids = [str(i) for i in (await read_form(request)).getlist("ids")]
         n = proposals_service.restore(project_dir(p), o, ids or None)
         return ok(f"/p/{p}/o/{o}/proposals", f"{n} proposal(s) brought back.")
 
